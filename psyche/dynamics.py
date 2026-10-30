@@ -184,9 +184,18 @@ class Dynamics:
         raw = threat + 0.85 * rejection + 0.85 * hostility + 0.55 * farewell * 0.6 + 0.5 * chaos
         neg = 1.0 - math.exp(-1.15 * raw)
 
-        st.bio["da_tonic"] = _c(st.bio["da_tonic"] + g * (0.10 * praise + 0.05 * intimacy - 0.07 * neg))
-        st.bio["da_phasic"] = _c(st.bio["da_phasic"] + g * (0.34 * praise + 0.12 * intimacy - 0.10 * rejection))
-        st.bio["serotonin"] = _c(st.bio["serotonin"] + g * (-0.09 * neg + 0.05 * calm + 0.03 * praise + 0.02 * help_))
+        # 正性维度同样必须饱和，理由和负性完全一样。缺了这个饱和，calm/praise/
+        # help/intimacy 会线性叠加：一句「我在这，别怕」能同时拿到四个正性维度，
+        # 单轮就给 DA 加 0.12，超过弛豫每轮能回拉的 0.069（da_tonic τ=8）——
+        # 稳态必然顶到 1.0，20 轮正常共情就能把人从抑郁推成躁狂。
+        # 那是 SSRI 过量才会有的效应，不是陪伴。权重按「稳态不顶格」标定：
+        # 稳态提升 = 权重 × pos / (1/τ)，取 da_tonic≈0.80、serotonin≈0.75。
+        pos_raw = calm + 0.85 * praise + 0.60 * help_ + 0.50 * intimacy
+        pos = 1.0 - math.exp(-0.85 * pos_raw)
+
+        st.bio["da_tonic"] = _c(st.bio["da_tonic"] + g * (0.052 * pos - 0.07 * neg))
+        st.bio["da_phasic"] = _c(st.bio["da_phasic"] + g * (0.32 * pos - 0.10 * rejection))
+        st.bio["serotonin"] = _c(st.bio["serotonin"] + g * (-0.09 * neg + 0.033 * pos))
         st.bio["norepinephrine"] = _c(st.bio["norepinephrine"] + g * (0.16 * threat + 0.10 * control + 0.06 * chaos - 0.09 * calm - 0.04 * intimacy))
         st.bio["gaba"] = _c(st.bio["gaba"] + g * (0.06 * calm - 0.07 * threat - 0.04 * chaos))
         st.bio["crh"] = _c(st.bio["crh"] + g * (0.22 * threat + 0.14 * rejection - 0.08 * calm))
@@ -748,8 +757,17 @@ class Dynamics:
         # 地板：慢性化后症状不能低于峰值的 45%*chronicity
         peak = st.meta.get("peak") or {}
         floor: Dict[str, float] = {}
+        # 地板要记的是「曾经被伤到过什么」，而不是「此刻还病着什么」。
+        # 若只取当前诊断的核心症状，会形成死结：一旦好转 → 诊断退出 → core 变空
+        # → 地板整体失效 → 下一轮就痊愈。实测 120 轮虐待（3 条地板）能被 120 轮
+        # 轻度回应治回 sev 0，就是这条链断在这里。所以每次确诊的核心症状都并进
+        # core_ever，只增不减，让伤害留痕。
+        ever = set(st.meta.get("core_ever") or [])
+        ever |= _core_symptoms(st)
+        if ever:
+            st.meta["core_ever"] = sorted(ever)
+        core = ever
         if chronic > 0.05:
-            core = _core_symptoms(st)
             for k, v in peak.items():
                 if k not in core or float(v) < 0.45:
                     continue

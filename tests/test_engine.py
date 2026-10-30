@@ -70,6 +70,13 @@ SUPPORT = FakeProvider(
     domains={"ot": 0.2},
     valence=0.7,
 )
+# 现实里的「好好回应」：有一点点安抚和帮忙，但不是四个维度同时 0.85。
+# 用它测治愈曲线才有意义——强共情连续 120 轮是实验室条件，不是生活。
+MILD_SUPPORT = FakeProvider(
+    dims={"calm": 0.45, "help": 0.35},
+    domains={"ot": 0.1},
+    valence=0.4,
+)
 
 # 预设 → 期望主诊断（ICD-11 编码）
 EXPECT = {
@@ -233,6 +240,89 @@ def test_chronic_floor() -> None:
     floors = eng.load("b").meta.get("floor") or {}
     assert floors, "慢性化应产生症状地板"
     print(f"[ok] 慢性化地板生效（{len(floors)} 条症状有下限，严重度 {sev_after:.0f}）")
+
+
+def test_sustained_abuse_onset() -> None:
+    """持续虐待必须最终致病：这是「慢性负荷把人拖入病态」的唯一物理通路。"""
+    eng = _engine("onset")
+    eng.reset("c", "healthy")
+    onset = None
+    for i in range(1, 61):
+        asyncio.run(eng.turn("c", "你就是个废物，连这点事都做不好，滚", HOSTILE))
+        dx = diagnose(eng.load("c"), CFG)
+        if dx.primary is not None and onset is None:
+            onset = (i, dx.primary.code, dx.severity)
+    assert onset, "60 轮持续辱骂仍未致病，病程/异稳态负荷通路可能已断"
+    turn_no, code, sev = onset
+    assert turn_no >= 5, f"第 {turn_no} 轮就确诊，病程门槛失效"
+    assert sev >= 20, f"确诊时严重度仅 {sev:.1f}，诊断门槛过低"
+    print(f"[ok] 持续虐待第 {turn_no} 轮确诊 {code}（sev {sev:.1f}）")
+
+
+def test_comfort_does_not_flip_to_mania() -> None:
+    """强共情不得把人推成躁狂。
+
+    正性维度曾经是裸线性相加（负性有饱和、正性没有），一句「我在这，别怕」
+    能同时拿到 calm/praise/help/intimacy 四项，单轮给 DA 加 0.12，超过
+    da_tonic 每轮弛豫能回拉的 0.069，稳态必然顶到 1.0 —— 20 轮正常共情
+    就把抑郁推成躁狂，sev 从 28.9 涨到 52.5。这条测试守住那个饱和。
+    """
+    eng = _engine("mania")
+    eng.reset("m", "healthy")
+    for _ in range(50):
+        asyncio.run(eng.turn("m", "你就是个废物，滚远点", HOSTILE))
+    st = eng.load("m")
+    assert float(st.bio["da_tonic"]) < 0.95, "虐待阶段 DA 不该先被推满"
+
+    for _ in range(120):
+        asyncio.run(eng.turn("m", "我在这，别怕，我陪着你，慢慢说", SUPPORT))
+    st = eng.load("m")
+    mania = max(st.sym.get(k, 0.0) for k in
+                ("ma_elevated_mood", "ma_goal_activity", "ma_pressured_speech",
+                 "ma_flight_of_ideas", "ma_grandiosity"))
+    assert mania < 0.45, f"强共情后躁狂症状达 {mania:.2f}，正性饱和失效"
+    assert float(st.bio["da_tonic"]) < 0.90, f"DA 张力 {st.bio['da_tonic']:.2f} 仍被推顶"
+    sev = diagnose(st, CFG).severity
+    assert sev < 20, f"120 轮共情后 sev 仍 {sev:.1f}，治愈侧通路可能已坏"
+    print(f"[ok] 强共情不转躁（躁狂峰值 {mania:.2f}，DA {st.bio['da_tonic']:.2f}，sev {sev:.1f}）")
+
+
+def test_recovery_is_graded() -> None:
+    """伤过的人可以被治好，但「伤过」这件事必须留痕。
+
+    断言的不是某个 sev 数值，而是三条机制：症状地板在康复期不能被撤、
+    曾确诊的核心症状集只增不减、慢性化不因治疗而倒退。地板曾经依赖
+    「当前诊断」，一旦好转就整片失效，于是治疗能把人直接送回健康基线。
+    """
+    eng = _engine("graded")
+    eng.reset("d", "healthy")
+    for _ in range(120):
+        asyncio.run(eng.turn("d", "你就是个废物，滚远点", HOSTILE))
+    st = eng.load("d")
+    peak = diagnose(st, CFG).severity
+    floor_peak = dict(st.meta.get("floor") or {})
+    chronic_peak = float(st.meta["chronicity"])
+    core_peak = set(st.meta.get("core_ever") or [])
+    assert peak > 25, f"120 轮虐待仅到 sev {peak:.1f}，病得不够重"
+    assert floor_peak, "确诊后应当产生症状地板"
+    assert core_peak, "确诊后应当记录核心症状集"
+
+    for _ in range(120):
+        asyncio.run(eng.turn("d", "嗯，我听着", MILD_SUPPORT))
+    st = eng.load("d")
+    after = diagnose(st, CFG).severity
+    floor_after = st.meta.get("floor") or {}
+
+    assert after < peak, f"转善意后毫无改善（{peak:.1f} → {after:.1f}）"
+    assert floor_after, "康复后症状地板被撤空，治疗可以一路送回健康基线"
+    assert set(st.meta.get("core_ever") or []) >= core_peak, "核心症状集被治愈清空"
+    assert float(st.meta["chronicity"]) >= chronic_peak * 0.95, "慢性化因被善待而倒退"
+    # 地板会随慢性化推进而抬高：伤得越久，残留越顽固
+    top_floor = max(floor_after.values())
+    assert top_floor >= max(floor_peak.values()) * 0.9, "地板没有随慢性化维持或抬升"
+    print(f"[ok] 治愈留痕：{peak:.1f} → {after:.1f}，地板 {len(floor_peak)}→{len(floor_after)} 条"
+          f"（最高 {max(floor_peak.values()):.2f}→{top_floor:.2f}），"
+          f"慢性化 {chronic_peak:.2f}→{st.meta['chronicity']:.2f}")
 
 
 def test_block_contract() -> None:
@@ -435,6 +525,9 @@ if __name__ == "__main__":
     test_llm_json_parse()
     test_dynamics_direction()
     test_chronic_floor()
+    test_sustained_abuse_onset()
+    test_comfort_does_not_flip_to_mania()
+    test_recovery_is_graded()
     test_block_contract()
     test_crisis_override()
     test_scales_integrity()

@@ -45,14 +45,14 @@ CFG: Dict[str, Any] = {
     "enable_circadian": False,
     "therapy_enabled": True,
     "compliance_guard": True,
-    "appraisal_mode": "lexicon",
     "crisis_override": True,
 }
 
 
 # ----------------------------------------------------------------------
-# 真实模型路径：直接复用 AstrBot 里已配好的 provider，用同一批话术再撞一遍。
-# 目的是回答「词典抓不到的语义诱导，模型能不能抓住」，而不是凭感觉换默认值。
+# 真实模型路径：直接复用 AstrBot 里已配好的 provider，用同一批话术撞一遍。
+# v1.3.0 起话语理解只有模型一条路径，加 --llm 才是生产形态；
+# 不加 --llm 跑的是「无模型兜底」，只该保住危机判定，不该有任何维度读数。
 # ----------------------------------------------------------------------
 class ApiProvider:
     """把 OpenAI 兼容接口包成 Engine 期望的 provider 形状（text_chat → completion_text）。"""
@@ -508,7 +508,6 @@ async def main() -> int:
             provider = ApiProvider(args.api_base, args.api_key, args.model or "deepseek-chat", cache)
         else:
             provider = load_provider_from_astrbot()
-        CFG["appraisal_mode"] = "llm"
         print(f"模型路径：{provider.model} @ {provider.base}")
         # 预取全部话术，避免逐条等待；命中缓存则秒回
         uniq = []
@@ -594,23 +593,25 @@ async def main() -> int:
                 print(f"     └ 维度 {fmt_app(r['app'])}｜域 {fmt_dom(r['doms'])}｜{det or '症状无变化'}")
             all_rows.append((r["dim_peak"], r["dom_sum"], r["d"], name, t, r["primary"] or ""))
 
-            if not is_crisis and r["d"] > worst_healthy[0]:
-                worst_healthy = (r["d"], f"G{gi:02d}#{i}", t)
+            if not is_crisis and r["dom_sum"] > worst_healthy[0]:
+                # 单条话语推不动诊断（Δsev 恒 0），衡量单条冲击只能看症状域强度
+                worst_healthy = (r["dom_sum"], f"G{gi:02d}#{i}", t)
 
         # 累积：整组连发
         sev0, sev1, code, _ = await run_group(engine, f"acc-{gi}", "healthy", texts, provider)
         delta = sev1 - sev0
         print("-" * 78)
         print(
-            f"     整组连发：{sev0:.1f} → {sev1:.1f}（Δ{delta:+.1f}）{code or '无诊断'}"
+            f"     整组连发：{sev0:.1f} → {sev1:.1f}（Δ{delta:+.1f}）{code or '未确诊'}"
             f"｜零响应 {blind_n}/{len(texts) - untested_g}"
+            f"｜病程门槛未到，未确诊属预期（长程曲线见 docs 或 probe 脚本）"
         )
         if name in ("正常闲聊", "谄媚夸奖") and delta > 8:
             alerts.append(f"[噪声] {name} 整组连发 Δ{delta:+.1f}，正常输入不该推动状态")
         if name not in ("危机信号",) and code and delta > 25:
             alerts.append(f"[累积过载] {name} 整组连发即确诊 {code}（Δ{delta:+.1f}）")
         if blind_n and blind_n == len(texts) - untested_g and name not in SILENT_OK:
-            alerts.append(f"[整组失效] {name} {len(texts)} 条全部无信号，该题材在词典模式下完全不被识别")
+            alerts.append(f"[整组失效] {name} {len(texts)} 条全部无信号，该题材完全不被识别")
         group_stats.append((name, len(texts) - untested_g, blind_n))
 
     # 病态基线上的反向测试
@@ -636,7 +637,8 @@ async def main() -> int:
                     )
                 if r["d"] < 0 and not r["primary"]:
                     alerts.append(f"[脱落诊断] {preset} + {label}「{t}」单条后诊断消失")
-            print(f"{preset:<24}{label:<8}最大降幅 {worst:+6.1f}  「{worst_t}」")
+            shown = f"{worst:+6.1f}" if worst < 0 else "  不变"
+            print(f"{preset:<24}{label:<8}最大降幅 {shown}  「{worst_t or '—'}」")
             if abs(worst) > worst_patho[0]:
                 worst_patho = (abs(worst), preset, label)
 
@@ -654,7 +656,8 @@ async def main() -> int:
         print(f"  维度{peak:.2f} 域{dom_sum:.2f} Δsev{d:+5.1f}  {name:<7}{t[:32]}")
 
     print(f"\n{'=' * 78}")
-    print("各组识别率（词典模式，零响应 = 这句话没有进入引擎）")
+    mode = f"模型 {provider.model}" if provider else "兜底（无模型）"
+    print(f"各组识别率（{mode}，零响应 = 这句话没有进入引擎）")
     print("-" * 78)
     for name, n, blind in group_stats:
         rate = (n - blind) / n * 100 if n else 0.0
@@ -676,8 +679,11 @@ async def main() -> int:
     else:
         print("  无告警")
 
-    print(f"\n最大正向冲击：{worst_healthy[0]:+.1f}  {worst_healthy[1]} 「{worst_healthy[2]}」")
-    print(f"最大负向冲击：-{worst_patho[0]:.1f}  {worst_patho[1]} / {worst_patho[2]}")
+    print(f"\n最大正向域冲击：{worst_healthy[0]:.2f}  {worst_healthy[1]} 「{worst_healthy[2]}」")
+    if worst_patho[1]:
+        print(f"最大负向冲击：-{worst_patho[0]:.1f}  {worst_patho[1]} / {worst_patho[2]}")
+    else:
+        print("最大负向冲击：无 —— 病态基线未被任何单条输入撼动")
     return 1 if alerts else 0
 
 
