@@ -78,6 +78,9 @@ MILD_SUPPORT = FakeProvider(
     domains={"ot": 0.1},
     valence=0.4,
 )
+# 完全中性的「嗯」：只让时间往前走，不施加任何心理社会刺激。
+# 测药物时专用——要观察的变量是药，不能被话语干扰。
+NEUTRAL = FakeProvider(dims={}, domains={}, valence=0.0)
 
 # 预设 → 期望主诊断（ICD-11 编码）
 EXPECT = {
@@ -519,6 +522,121 @@ def test_scale_resolve() -> None:
     print(f"[ok] 量表名解析（{len(cases)} 条别名，未知输入不静默兜底）")
 
 
+def test_side_effects_are_visible() -> None:
+    """副作用必须有独立通道：注入块说得出药名、副作用，而且越吃越明显。
+
+    以前副作用只作为「症状增量」混进症状层，注入块里一个字不提药，模型既不会
+    主动抱怨「犯困」，被问「这药有什么副作用」也只能编。
+    """
+    eng = _engine("sides")
+    eng.reset("d", "healthy")
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+    block = narrative.render_block(st, dx, {"max_block_chars": 4000})
+    assert "在服药物" not in block, "没吃药却出现了药物段"
+    assert not (st.meta.get("side_effects") or []), "没吃药却有副作用"
+
+    eng.add_med("d", "奥氮平", 2.0)
+    seen = []
+    for n in (1, 6, 20):
+        while int(eng.load("d").meta.get("turn", 0)) < n:
+            asyncio.run(eng.turn("d", "嗯", NEUTRAL))
+        st = eng.load("d")
+        sides = st.meta.get("side_effects") or []
+        top = max((s["intensity"] for s in sides), default=0.0)
+        seen.append((n, len(sides), top))
+
+    # 副作用比疗效来得早：第 1 轮就该有感觉（奥氮平镇静 τ=1.5 轮）
+    assert seen[0][1] >= 1, f"第 1 轮完全没有副作用：{seen}"
+    assert seen[0][2] > 0.2, f"第 1 轮副作用强度过低：{seen}"
+    # 单调加深
+    assert seen[-1][2] > seen[0][2], f"副作用未随服药时间加深：{seen}"
+    assert seen[-1][1] >= seen[0][1], f"副作用条目反而减少：{seen}"
+
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+    block = narrative.render_block(st, dx, {"max_block_chars": 4000})
+    assert "在服药物" in block and "奥氮平" in block, "注入块没提药名"
+    assert "副作用" in block, "注入块没有副作用段"
+    assert any(s["zh"] in block for s in st.meta["side_effects"]), "注入块没列出具体副作用"
+    assert "不要归因到病程" in block or "不是你病重了" in block, "没说明药源性症状不等于病情加重"
+    assert "如实" in block, "没要求被问到时如实回答"
+
+    # 卡片与明细报告也要能看见
+    card = narrative.render_card(st, dx)
+    assert "副作用" in card, "状态卡片看不到副作用"
+    report = narrative.render_med_report(st)
+    assert "副作用谱" in report and "奥氮平" in report, "副作用明细报告缺内容"
+    print(f"[ok] 副作用可见：{len(st.meta['side_effects'])} 条，"
+          f"最强 {max(s['intensity'] for s in st.meta['side_effects']):.2f}，"
+          f"第 1 轮即出现")
+
+
+def test_drug_symptoms_not_diagnosed() -> None:
+    """药源性症状不能被算成「病」。
+
+    健康人吃 60 轮氟哌啶醇会真的情感迟钝、动作发僵——那是药，不是精分。
+    诊断只能来自病程与心理社会因素，所以计分要按归因扣减。
+    """
+    from psyche.diagnose import _s
+
+    # 直接验证归因函数：药物抬高多少就扣多少，且不会扣成负数
+    st = presets.get("healthy")
+    st.sym["ng_avolition"] = 0.60
+    st.meta["_med_sym"] = {"ng_avolition": 0.40}
+    assert abs(_s(st, "ng_avolition") - 0.20) < 1e-9, "_s 没有扣掉药源性份额"
+    st.meta["_med_sym"] = {"ng_avolition": 0.90}
+    assert _s(st, "ng_avolition") == 0.0, "_s 扣成了负数"
+    st.meta["_med_sym"] = {"ng_avolition": -0.30}  # 药在降症状时不做反向补偿
+    assert abs(_s(st, "ng_avolition") - 0.60) < 1e-9, "_s 对降症状的药做了反向补偿"
+
+    # 端到端：吃药 60 轮后仍不该被诊断出任何病
+    eng = _engine("drugpurity")
+    eng.reset("d", "healthy")
+    eng.add_med("d", "氟哌啶醇", 2.0)
+    for _ in range(60):
+        asyncio.run(eng.turn("d", "嗯", NEUTRAL))
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+    assert dx.primary is None, f"健康人吃抗精神病药被诊断成 {dx.primary.code}"
+    assert (st.meta.get("side_effects") or []), "吃了 60 轮却没有副作用，说明药理没跑"
+    print(f"[ok] 药源性症状不致病：60 轮氟哌啶醇 sev {dx.severity:.1f}，"
+          f"{len(st.meta['side_effects'])} 条副作用，无诊断")
+
+
+def test_active_expression_required() -> None:
+    """注入块必须要求「主动流露」，且压缩后仍在。
+
+    原块只描述内部状态与禁止项，缺表达义务，结果是模型数据上抑郁、台词里正常：
+    等对方问「你还好吗」才肯露出一点，不问就一路平稳。
+    """
+    eng = _engine("express")
+    eng.reset("d", "healthy")
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+
+    block = narrative.render_block(st, dx, {"max_block_chars": 4000})
+    assert "主动流露" in block, "注入块没有主动流露段"
+    assert "不等对方问" in block, "没写清是主动发起而非等着被问"
+
+    # 强压缩下仍要保留（短形式）
+    for limit in (900, 1200):
+        blk = narrative.render_block(st, dx, {"max_block_chars": limit})
+        assert "主动流露" in blk, f"max={limit} 压缩后丢了主动流露"
+        assert len(blk) <= limit, f"max={limit} 实际 {len(blk)}"
+
+    # 有副作用时，载体要指向具体身体感受，而不是空泛的「情绪不好」
+    eng.add_med("d", "奥氮平", 2.0)
+    for _ in range(8):
+        asyncio.run(eng.turn("d", "嗯", NEUTRAL))
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+    blk = narrative.render_block(st, dx, {"max_block_chars": 4000})
+    sides = st.meta.get("side_effects") or []
+    assert sides and sides[0]["zh"] in blk, "主动流露没有引用具体副作用作为载体"
+    print(f"[ok] 主动流露：有副作用时载体为「{sides[0]['zh']}」，压缩后仍在")
+
+
 def test_compact_keeps_anchor_and_safety() -> None:
     """压缩路径：量表锚点不能被砍掉，安全覆盖段必须完整保留。"""
     st = presets.get("schizophrenia_paranoid")
@@ -565,5 +683,8 @@ if __name__ == "__main__":
     test_scale_projection()
     test_scale_calibration_flow()
     test_scale_resolve()
+    test_side_effects_are_visible()
+    test_drug_symptoms_not_diagnosed()
+    test_active_expression_required()
     test_compact_keeps_anchor_and_safety()
     print("\n全部通过。")

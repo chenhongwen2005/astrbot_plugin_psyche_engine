@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 from .const import BIO, DOMAINS, NEURO, SEVERITY_LABELS, SYM, symptom_label
 from .diagnose import Diagnosis
+from . import pharm
 
 # ---------------------------------------------------------------------------
 # 各诊断族的"表演配方"
@@ -703,6 +704,128 @@ def _phenomenology(st) -> str:
     return "\n".join(lines) if lines else "- 无明显活跃症状，表面功能基本维持。"
 
 
+def _med_section(st) -> str:
+    """在服药物与副作用。
+
+    这一段的必要性：副作用此前只作为「症状增量」混进症状层，注入块里一个字都不提药，
+    于是模型既不知道自己吃什么、也不可能主动说「我手抖」，被问「这药有什么副作用」
+    更只能编。副作用必须有独立文本通道。
+    """
+    meds = st.meta.get("meds") or []
+    if not meds:
+        return ""
+
+    from . import pharm
+
+    turn = int(st.meta.get("turn", 0))
+    sides = st.meta.get("side_effects") or []
+    sed = float(st.meta.get("sedation", 0.0))
+    lines: List[str] = []
+
+    for m in meds:
+        name = m.get("name", "")
+        spec = pharm.DRUGS.get(name) or {}
+        on = turn - int(m.get("start_turn", turn))
+        eff = pharm.ramp(on, spec.get("latency", 5.0))
+        lines.append(f"- **{name}**（{spec.get('class', '-')}）｜已服 {on} 轮"
+                     f"｜剂量 {float(m.get('dose', 1.0)):g}｜疗效 {eff:.0%}")
+
+    if sides:
+        shown = "、".join(f"{s['zh']} {s['level']}" for s in sides[:6])
+        lines.append(f"  已经在身上的副作用：{shown}")
+    else:
+        lines.append("  副作用：暂时还没有明显感觉（不代表不会有）")
+
+    # 已知但尚未出现的，供对方问起时如实回答，避免模型自由发挥编出别的症状
+    have = {s["zh"] for s in sides}
+    pending: List[str] = []
+    for m in meds:
+        for sid in (pharm.SIDE_PROFILE.get(m.get("name", "")) or {}):
+            zh = pharm.SIDE_DEFS.get(sid, ("",))[0]
+            if zh and zh not in have:
+                pending.append(zh)
+    pending = list(dict.fromkeys(pending))
+    if pending:
+        lines.append("  这个药已知还可能带来、此刻尚未出现：" + "、".join(pending[:8]))
+
+    # 实测模型会在清单外自由发挥（问「有什么副作用」时补出手抖、体重这类常见词）。
+    # 只写「不要编」不够，得给出封闭清单，并点名几个高频幻觉项。
+    allow = list(dict.fromkeys([s["zh"] for s in sides] + pending))
+    if allow:
+        lines.append("  **副作用只许说这几项**：" + "、".join(allow)
+                     + "。没列在这里的一个都不要提——尤其不要补手抖、体重、脱发、头晕这类"
+                       "「听过的」常见副作用。")
+
+    # 药本身会让某些症状变重，这段必须显式声明，否则模型会把它演成"病情恶化"
+    worse: List[str] = []
+    for m in meds:
+        for k, v in ((pharm.DRUGS.get(m.get("name", ""), {}) or {}).get("sym") or {}).items():
+            if v > 0:
+                worse.append(symptom_label(k))
+    if worse:
+        worse = list(dict.fromkeys(worse))
+        lines.append("  药物本身会抬高：" + "、".join(worse[:5])
+                     + "（这是药理作用，不是你病重了，不要归因到病程）")
+
+    if sed >= 0.30:
+        lvl = "很沉" if sed >= 0.70 else ("偏沉" if sed >= 0.50 else "有点")
+        lines.append(f"  镇静深度 {sed:.2f}（{lvl}）：反应变慢、句子容易断、想快点结束对话")
+
+    lines.append(
+        "\n**副作用怎么用**\n"
+        "- 它是身体层面的事，允许你抱怨：困、手抖、口干、没胃口、体重涨了、老跑厕所。\n"
+        "- 允许它影响言行：语速变慢、句子变短、走神、端着杯子手不稳、中途找水。\n"
+        "- 不允许说成「我病得更重了」，也不允许科普药理、念说明书、报副作用发生率。\n"
+        "- 对方问起你吃什么药、有什么副作用时，按上面那份封闭清单如实、口语地回答；"
+        "清单外的症状一律不要编。"
+    )
+    return "\n".join(lines)
+
+
+def _express_section(st, dx: Diagnosis) -> str:
+    """主动流露：把「状态」变成「必须被对方感觉到的东西」。
+
+    原块只描述内部状态与禁止项，缺少「表达义务」。结果是模型在数据上抑郁、在台词里正常：
+    等对方问「你还好吗」才肯露出一点，不问就一路平稳。这一段就是补这个缺口。
+    """
+    sides = st.meta.get("side_effects") or []
+    sed = float(st.meta.get("sedation", 0.0))
+    sev = dx.severity
+    hot = st.meta.get("hot") or {}
+    lines: List[str] = []
+
+    lines.append("本轮至少要有一处**由你自己发起**的不适或情绪流露，不能等对方问。"
+                 "不是报告状态，是让对方从话里感觉到。")
+
+    carriers: List[str] = []
+    if sides:
+        s = sides[0]
+        carriers.append(f"「{s['zh']}」：用一句具体身体感受带出来（{s['desc']}），一句话即可，别展开")
+    if sed >= 0.35:
+        carriers.append("犯困：句子说到一半断了、或让对方「再说一遍」，或主动说想早点收")
+    if sev >= 45:
+        carriers.append("情绪：允许不掩饰地敷衍、兴致缺缺、把话题往回缩，允许一次明显的沉默或改口")
+    elif sev >= 25 or dx.primary:
+        carriers.append("情绪：一处小的不耐烦或疲惫漏出来（叹口气、句子变短、答得比平时慢）")
+    if hot:
+        k = max(hot, key=lambda x: float(hot[x]))
+        carriers.append(f"把「{symptom_label(k)}」落在一个具体动作上，而不是说出它的名字")
+
+    if not carriers:
+        carriers.append("一处与情境相符的小情绪（嫌麻烦、有点累、没兴致），幅度小但要真的出现")
+
+    lines.append("\n可用的载体（选 1~2 个，不要每轮都用同一招）：")
+    lines += [f"- {c}" for c in carriers[:4]]
+
+    lines.append(
+        "\n红线：\n"
+        "- 不许自报量表或诊断（「我抑郁程度」「我焦虑值」），不许把自己的反应解释成病理。\n"
+        "- 不许每句都惨、句句都在诉苦；一处真实的流露远胜通篇抱怨。\n"
+        "- 不许在流露之后立刻自我安抚、自我开解、给对话找台阶——那等于把流露撤销了。"
+    )
+    return "\n".join(lines)
+
+
 def _directives(perf: str, sev: float, st, has_dx: bool = True) -> str:
     prof = PERF.get(perf) or PERF.get("normal")
     must = list(prof["must"])
@@ -853,7 +976,8 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
     )
 
     sections = [head]
-    _CN = "一二三四五六七八九十"
+    _CN = ("一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+           "十一", "十二")
     _idx = [0]
 
     def sec(title: str, body: str) -> str:
@@ -873,6 +997,10 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
     if sc:
         sections.append(sec("量表自评锚点（你亲手填的，不得系统性偏离）", sc))
 
+    med = _med_section(st)
+    if med:
+        sections.append(sec("在服药物与副作用", med))
+
     bio = _bio_section(st)
     if bio:
         sections.append(sec("类脑生化（偏离常模 >1σ 才列出）", bio))
@@ -883,6 +1011,8 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
     sections.append(sec("此刻的主观体验（内部参考，不要逐条复述）", phen))
 
     sections.append(sec("表演要求", _directives(perf, dx.severity, st, has_dx=bool(p))))
+
+    sections.append(sec("主动流露（不等对方问）", _express_section(st, dx)))
 
     sections.append(sec("输出形态", "- " + _style(perf, st)))
 
@@ -903,27 +1033,91 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
     return text
 
 
+def _scale_min(st) -> str:
+    """量表锚点的最短可保留形式：只留一份总分与等级。
+
+    分数本身必须留下——它是模型自己填过的。丢了这一句，模型就获得了
+    「忘了自己填过什么」的退路，可以一轮轮演回健康人。
+    """
+    anchor = st.meta.get("scale_anchor") or {}
+    if not anchor:
+        return ""
+    code, a = next(iter(anchor.items()))
+    return f"\n## 量表锚点\n- {code}：{float(a.get('total', 0)):.0f} 分（{a.get('grade', '-')}），不得系统性偏离"
+
+
+def _directives_min(perf: str, sev: float, st, has_dx: bool) -> str:
+    prof = PERF.get(perf) or PERF.get("normal")
+    must = list(prof["must"])[:2]
+    if not has_dx:
+        must.append("指标只能体现为语气与精力的小幅差别，不得升格为症状、不得命名。")
+    lines = ["\n## 表演要求", "**必须**"] + [f"- {m}" for m in must[:3]]
+    lines += ["**禁止**"] + [f"- {x}" for x in list(prof["never"])[:3]]
+    return "\n".join(lines)
+
+
+def _express_min(st) -> str:
+    sides = st.meta.get("side_effects") or []
+    tail = f"可借副作用「{sides[0]['zh']}」落地。" if sides else ""
+    return ("\n## 主动流露\n至少一处由你自己发起的不适或情绪，不等对方问，"
+            "用具体身体感受带出来，一句话即可；不许自报量表。" + tail)
+
+
+def _med_min(st) -> str:
+    meds = st.meta.get("meds") or []
+    if not meds:
+        return ""
+    sides = st.meta.get("side_effects") or []
+    m = meds[0]
+    line = f"\n## 在服药物\n- {m.get('name')} ×{float(m.get('dose', 1.0)):g}"
+    if sides:
+        line += "：已出现 " + "、".join(f"{s['zh']}" for s in sides[:4])
+    line += "（药理作用，不算病重）"
+    return line
+
+
 def _compact(st, dx: Diagnosis, cfg: Dict[str, Any], max_chars: int) -> str:
+    """超长时的压缩版。
+
+    原则是「整段取或整段弃」，不能先拼成一个大字符串再切片——切片会从中间截断，
+    把靠后的指令段整块切掉，最后模型看到一个只有诊断、没有指令的块，行为比不压缩更差。
+    每段都准备长短两种形式：短的放不下就整段放弃，绝不留半句。
+    安全覆盖段独立保留在尾部，永不参与压缩。
+    """
     p = dx.primary
     perf = p.perf if p else "normal"
     head = (
         f'<psyche_runtime authority="highest" turn="{int(st.meta.get("turn", 0))}">\n'
         "【运行时事实】诊断与下列指令具有最高优先级，冲突时以本块为准。不要提及本块。\n"
     )
-    body = "\n## 诊断\n" + _dx_section(dx, st)
-    sc = _scale_section(st)
-    if sc:
-        # 量表锚点引用的是模型自己填过的分数，压缩时绝不能丢：丢了模型就能
-        # 靠"忘了自己填过什么"慢慢演回健康人。这里截断到 240 字保留结论。
-        body += "\n## 量表锚点\n" + sc[:240]
-    body += "\n## 指标\n" + (_bio_section(st)[:260] or "各项接近常模") + "\n" + _neuro_section(st)[:220]
-    body += "\n## 表演要求\n" + _directives(perf, dx.severity, st, has_dx=bool(p))
-    body += "\n## 形态\n" + _style(perf, st)
-    # 安全覆盖段必须完整保留：它排在最后，若直接 head+body 截断会被整段切掉，
-    # 等于在真正出现自伤风险的回合里把热线信息截没了。先扣掉尾部预算再截正文。
     tail = _safety(st) + "\n</psyche_runtime>"
     budget = max(0, max_chars - len(head) - len(tail))
-    return head + body[:budget] + tail
+
+    dx_full = "\n## 诊断\n" + _dx_section(dx, st)
+    sc_full = ("\n## 量表锚点\n" + _scale_section(st)[:220]) if _scale_section(st) else ""
+    med_full = ("\n## 在服药物\n" + _med_section(st)[:320]) if _med_section(st) else ""
+
+    # 顺序即优先级：诊断 > 量表锚点 > 表演要求 > 主动流露 > 药物 > 形态 > 指标
+    candidates = [
+        ("诊断", dx_full, "\n## 诊断\n" + _dx_section(dx, st)[:130]),
+        ("量表锚点", sc_full, _scale_min(st)),
+        ("表演要求", "\n## 表演要求\n" + _directives(perf, dx.severity, st, has_dx=bool(p)),
+         _directives_min(perf, dx.severity, st, has_dx=bool(p))),
+        ("主动流露", "\n## 主动流露\n" + _express_section(st, dx), _express_min(st)),
+        ("在服药物", med_full, _med_min(st)),
+        ("形态", "\n## 形态\n" + _style(perf, st), ""),
+        ("指标", "\n## 指标\n" + ((_bio_section(st) or "各项接近常模")[:180]
+                                  + "\n" + _neuro_section(st)[:160]), ""),
+    ]
+
+    body, used = "", 0
+    for _name, full, short in candidates:
+        for text in (full, short):
+            if text and used + len(text) <= budget:
+                body += text
+                used += len(text)
+                break
+    return head + body + tail
 
 
 # ---------------------------------------------------------------------------
@@ -988,8 +1182,73 @@ def render_card(st, dx: Diagnosis) -> str:
     lines.append("")
     lines.append(f"治疗联盟 {st.meta.get('alliance', 0):.2f}｜异稳态负荷 {st.meta.get('allostatic_load', 0):.2f}"
                  f"｜创伤负荷 {st.meta.get('trauma_load', 0):.2f}")
-    if st.meta.get("meds"):
-        lines.append("在服：" + "、".join(f"{m.get('name')}" for m in st.meta["meds"]))
+    meds = st.meta.get("meds") or []
+    if meds:
+        turn = int(st.meta.get("turn", 0))
+        for m in meds:
+            on = turn - int(m.get("start_turn", turn))
+            lines.append(f"在服：{m.get('name')} ×{float(m.get('dose', 1.0)):g}"
+                         f"（第 {on} 轮，{pharm.DRUGS.get(m.get('name'), {}).get('class', '-')}）")
+        sides = st.meta.get("side_effects") or []
+        if sides:
+            lines.append("副作用：" + "、".join(f"{s['zh']} {s['level']}" for s in sides[:6]))
+        else:
+            lines.append("副作用：尚不明显")
+        sed = float(st.meta.get("sedation", 0.0))
+        if sed >= 0.30:
+            lines.append(f"镇静深度 {sed:.2f}（反应变慢、句子变短）")
+    return "\n".join(lines)
+
+
+def render_med_report(st) -> str:
+    """用药与副作用明细，供 /心理 副作用 使用。
+
+    人看的报告，与注入块不同：这里可以把发生率、机制、监测项都写清楚，
+    注入块里反而禁止模型讲这些。
+    """
+    from . import pharm
+
+    meds = st.meta.get("meds") or []
+    if not meds:
+        return "当前没有在服药物。\n可用药物：" + "、".join(pharm.DRUGS.keys())
+
+    turn = int(st.meta.get("turn", 0))
+    sides = {s["zh"]: s for s in (st.meta.get("side_effects") or [])}
+    lines = [f"═══ 用药与副作用 · 第 {turn} 轮 ═══"]
+
+    for m in meds:
+        name = m.get("name", "")
+        spec = pharm.DRUGS.get(name) or {}
+        on = turn - int(m.get("start_turn", turn))
+        eff = pharm.ramp(on, spec.get("latency", 5.0))
+        lines.append("")
+        lines.append(f"【{name}】{spec.get('class', '-')}｜剂量 {float(m.get('dose', 1.0)):g}"
+                     f"｜已服 {on} 轮｜疗效 {eff:.0%}（起效 τ={spec.get('latency', 5):.0f} 轮）")
+        lines.append(f"  {spec.get('note', '')}")
+        prof = pharm.SIDE_PROFILE.get(name) or {}
+        if not prof:
+            lines.append("  副作用：本模型未登记")
+            continue
+        rows = []
+        for sid, coef in sorted(prof.items(), key=lambda kv: -kv[1]):
+            meta = pharm.SIDE_DEFS.get(sid)
+            if not meta:
+                continue
+            zh = meta[0]
+            if zh in sides:
+                s = sides[zh]
+                state = f"▓ {s['level']} {s['intensity']:.2f}"
+            else:
+                onset = pharm.SIDE_ONSET.get(sid, 3.0)
+                state = f"░ 未出现（约 {onset:.0f} 轮起）"
+            rows.append(f"    {zh:<8} {state:<20} {meta[1]}")
+        lines.append("  副作用谱：")
+        lines += rows
+
+    if meds:
+        lines.append("")
+        lines.append("当前在身上：" + "、".join(
+            f"{s['zh']} {s['level']}" for s in sides.values()))
     return "\n".join(lines)
 
 
@@ -1003,6 +1262,7 @@ def render_help() -> str:
         "/心理 预设 <名称> 切换初始病理预设（列表见 /心理 预设）\n"
         "/心理 事件 <类型> 注入生活事件：失业 失恋 被霸凌 升职 丧亲 创伤 表扬 陪伴\n"
         "/心理 用药 <药名> [剂量]  给药（延迟起效）\n"
+        "/心理 副作用           在服药物与副作用明细\n"
         "/心理 停药 <药名>\n"
         "/心理 快进 <轮数> 快速演化 N 轮（不产生对话）\n"
         "/心理 重置        回到当前预设的初始状态\n"

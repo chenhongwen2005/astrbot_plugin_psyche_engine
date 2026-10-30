@@ -17,7 +17,7 @@ desc: >-
   **重要声明**：本插件是角色扮演与创作辅助工具，不是医疗器械。诊断匹配、生化与电生理
   数值均为面向叙事的简化模型，不构成任何医学意见，不可用于自我诊断或诊断他人。请仅在
   虚构角色、明确知情的场景中使用。
-version: 1.3.2
+version: 1.3.3
 author: 亓官浮尘
 repo: https://github.com/chenhongwen2005/astrbot_plugin_psyche_engine
 astrbot_version: ">=4.17.0"

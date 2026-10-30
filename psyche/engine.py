@@ -417,8 +417,13 @@ class Engine:
         self.save(key, st)
         self.store.log(key, int(st.meta.get("turn", 0)), "med_add", {"drug": drug, "dose": dose})
         spec = pharm.DRUGS[drug]
+        prof = pharm.SIDE_PROFILE.get(drug) or {}
+        top = sorted(prof.items(), key=lambda kv: -kv[1])[:5]
+        sides = "、".join(pharm.SIDE_DEFS[s][0] for s, _ in top if s in pharm.SIDE_DEFS)
         return (f"已给予 {drug}（{spec['class']}），剂量 {dose:g}。"
-                f"起效时间约 {spec['latency']:.0f} 轮。{spec['note']}")
+                f"起效约 {spec['latency']:.0f} 轮。\n"
+                f"常见副作用：{sides or '无记录'}\n"
+                f"副作用比疗效来得早，通常 2~4 轮就能感觉到；/心理 副作用 看明细。")
 
     def remove_med(self, key: str, name: str) -> str:
         drug = pharm.resolve(name) or name

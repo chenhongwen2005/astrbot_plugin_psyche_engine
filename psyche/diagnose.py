@@ -86,6 +86,25 @@ class Diagnosis:
         return [d.code for d in self.all()]
 
 
+def _s(st: MindState, key: str) -> float:
+    """诊断用的症状强度：扣掉药源性份额。
+
+    吃氟哌啶醇的人确实会情感迟钝、动作发僵——那是药，不是病。若照原样计入证据，
+    一个健康人吃 60 轮抗精神病药就会被判成「阴性症状群」，这是误诊。
+    归因规则：药物抬高多少就扣多少，最多扣到 0；药物降低症状（如 SSRI 降抑郁）
+    不做反向补偿，否则等于用药能伪造「痊愈」。
+    """
+    raw = st.s(key)
+    med = (st.meta.get("_med_sym") or {}).get(key, 0.0)
+    try:
+        med = float(med)
+    except (TypeError, ValueError):
+        med = 0.0
+    if med <= 0:
+        return raw
+    return max(0.0, raw - med)
+
+
 def _sig(x: float, mid: float = 0.0, k: float = 1.0) -> float:
     try:
         return 1.0 / (1.0 + math.exp(-k * (x - mid)))
@@ -133,9 +152,14 @@ def diagnose(st: MindState, cfg: Dict[str, Any] | None = None) -> Diagnosis:
     for d in DISORDERS:
         crit = d["crit"]
         total_w = sum(w for _, w in crit)
+        # 命中判定用原始值，计分用归因值。
+        # 若两边都用归因值，被药物抬起来的那条会跌出 met，而评分里有一项是
+        # 「命中项的平均强度」——分母变小反而把分数抬高，出现「扣掉药源性
+        # 份额后严重度反而上升」的荒谬结果。先定集合、再按归因后强度计分，
+        # 才会保持单调下降。
         met = [(k, w) for k, w in crit if st.s(k) >= d["min_sev"]]
         # 加权覆盖：症状越重贡献越大，避免"刚过阈值"就把覆盖度顶满
-        met_w = sum(w * st.s(k) for k, w in met)
+        met_w = sum(w * _s(st, k) for k, w in met)
         coverage = met_w / total_w if total_w > 0 else 0.0
 
         onset = first_map.get(d["code"])
@@ -145,14 +169,14 @@ def diagnose(st: MindState, cfg: Dict[str, Any] | None = None) -> Diagnosis:
         cap_pen = 0.0
         caps_violated: List[str] = []
         for k, cap in (d.get("caps") or {}).items():
-            excess = st.s(k) - cap
+            excess = _s(st, k) - cap
             if excess > 0:
                 cap_pen += excess
                 caps_violated.append(k)
 
         # 核心症状未命中：该诊断不成立
         core = CORE.get(d["code"]) or []
-        core_miss = bool(core) and not any(st.s(k) >= d["min_sev"] * 0.9 for k in core)
+        core_miss = bool(core) and not any(_s(st, k) >= d["min_sev"] * 0.9 for k in core)
         if core_miss:
             cap_pen += 1.0
 
@@ -165,7 +189,7 @@ def diagnose(st: MindState, cfg: Dict[str, Any] | None = None) -> Diagnosis:
             -2.15
             + 4.70 * coverage
             + 1.55 * bio
-            + 0.55 * min(1.0, sum(st.s(k) for k, _ in met) / max(1, len(met)))
+            + 0.55 * min(1.0, sum(_s(st, k) for k, _ in met) / max(1, len(met)))
             + 0.35 * min(1.0, len(crit) / 7.0)
             - 3.00 * cap_pen
             - 1.35 * n_short
@@ -221,13 +245,13 @@ def diagnose(st: MindState, cfg: Dict[str, Any] | None = None) -> Diagnosis:
             prob *= 0.35
 
         evidence = [
-            {"key": k, "label": symptom_label(k), "value": round(st.s(k), 3), "weight": w}
-            for k, w in sorted(met, key=lambda kv: -st.s(kv[0]))[:6]
+            {"key": k, "label": symptom_label(k), "value": round(_s(st, k), 3), "weight": w}
+            for k, w in sorted(met, key=lambda kv: -_s(st, kv[0]))[:6]
         ]
 
         sev = 0.0
         if met:
-            mean_met = sum(st.s(k) for k, _ in met) / len(met)
+            mean_met = sum(_s(st, k) for k, _ in met) / len(met)
             # 用幂函数压缩，避免"条目多"把严重度顶到 90+
             sev = 100.0 * (mean_met ** 1.30) * (0.65 + 0.35 * coverage)
             sev *= min(1.10, 0.90 + 0.06 * len(met))

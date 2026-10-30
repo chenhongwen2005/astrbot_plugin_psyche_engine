@@ -13,7 +13,7 @@ from typing import Dict, Tuple
 
 # 版本号必须与 metadata.yaml 的 version 保持一致。
 # tests/test_plugin_smoke.py 会校验两者相同——改了这里忘了改那边，测试会红。
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 # ---------------------------------------------------------------------------
 # 一、类脑神经化学 / 内分泌 / 免疫指标

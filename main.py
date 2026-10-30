@@ -228,6 +228,11 @@ class PsycheEnginePlugin(Star):
                 yield event.plain_result(self.engine.add_med(key, args[0], dose))
                 return
 
+            if sub in ("副作用", "side", "副作用明细"):
+                st = self.engine.load(key)
+                yield event.plain_result(narrative.render_med_report(st))
+                return
+
             if sub in ("停药", "off"):
                 if not args:
                     yield event.plain_result("用法：/心理 停药 <药名>")

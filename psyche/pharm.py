@@ -176,6 +176,149 @@ ALIASES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 副作用层
+# ---------------------------------------------------------------------------
+# 之前副作用只有一个去处：塞进 `sym`（症状层）。问题在于症状层是「疾病」的度量，
+# 药带来的嗜睡、手抖、口干混进去以后，和病情本身完全无法区分——于是会出现两个后果：
+#   1. 健康人吃奥氮平，诊断器看到「嗜睡 + 意志减退」就往抑郁/阴性症状上算，等于误诊；
+#   2. 注入块里没有任何一句提到药，模型既不知道自己吃什么，也不可能主动说「我手抖」，
+#      更不可能在对方问「这药有什么副作用」时答得出来。
+# 所以副作用必须有独立的状态量与独立的文本通道，不能寄生在症状层。
+SIDE_DEFS: Dict[str, tuple] = {
+    # id: (名称, 体感描述——注入块给模型的就是这个，要求是身体感受而非诊断名词)
+    "sedation": ("嗜睡", "犯困，反应变慢，说话变短"),
+    "weight_gain": ("体重增加", "食欲变大，衣服变紧"),
+    "appetite_up": ("食欲增加", "总想吃，尤其想吃碳水"),
+    "appetite_down": ("食欲下降", "吃两口就饱，饭没味道"),
+    "dry_mouth": ("口干", "嘴里发干，老想喝水"),
+    "constipation": ("便秘", "排便变少、腹胀"),
+    "nausea": ("恶心", "胃里翻，闻不得油烟"),
+    "akathisia": ("静坐不能", "坐不住，腿里像有东西在爬"),
+    "tremor": ("手抖", "端碗、写字时发抖"),
+    "eps_stiff": ("肌肉僵硬", "动作发僵，转身不利索"),
+    "prolactin": ("催乳素升高", "乳房胀痛、月经不规律"),
+    "sexual": ("性功能减退", "没兴趣，也很难有反应"),
+    "sweating": ("多汗", "动不动一身汗"),
+    "polyuria": ("多尿口渴", "老跑厕所，总觉得渴"),
+    "memory": ("记忆减退", "刚说的事想不起来"),
+    "headache": ("头痛", "太阳穴一跳一跳"),
+    "orthostatic": ("起身发晕", "站起来眼前发黑"),
+    "activation": ("一过性激越", "心里发紧、坐立不安"),
+    "insomnia": ("入睡困难", "躺下很久睡不着"),
+    "rash": ("皮疹", "身上起红点，发痒"),
+}
+
+# 副作用起效速度（达到 63% 所需轮数）。多数副作用比疗效早得多，这是关键差别：
+# SSRI 要 18 轮才见效，但恶心第 2 轮就来——患者抱怨的往往正是「还没效先难受」。
+SIDE_ONSET: Dict[str, float] = {
+    "sedation": 1.5, "nausea": 2.0, "headache": 2.5, "activation": 2.5,
+    "dry_mouth": 3.0, "orthostatic": 3.0, "sweating": 4.0, "appetite_down": 3.0,
+    "insomnia": 4.0, "polyuria": 4.0, "tremor": 5.0, "akathisia": 4.0,
+    "eps_stiff": 6.0, "rash": 6.0, "memory": 8.0, "sexual": 8.0,
+    "constipation": 6.0, "appetite_up": 7.0, "weight_gain": 14.0, "prolactin": 10.0,
+}
+
+# 副作用里真正会碰到症状层的少数几条（其余只作为身体感受存在，不参与诊断）
+SIDE_SYM: Dict[str, Dict[str, float]] = {
+    "sedation": {"md_hypersomnia": 0.09, "md_concentration": 0.05},
+    "akathisia": {"md_agitation": 0.10, "ax_somatic": 0.08},
+    "eps_stiff": {"ng_psychomotor_poverty": 0.07},
+    "activation": {"md_agitation": 0.07, "ax_worry": 0.05},
+    "nausea": {"so_somatic_complaint": 0.06},
+    "headache": {"so_somatic_complaint": 0.05},
+    "tremor": {"so_somatic_complaint": 0.04},
+    "dry_mouth": {"so_somatic_complaint": 0.03},
+}
+
+# 每个药的副作用谱（系数 = 剂量 1、达峰时的强度）
+SIDE_PROFILE: Dict[str, Dict[str, float]] = {
+    "奥氮平": {"sedation": 0.72, "weight_gain": 0.85, "appetite_up": 0.75, "dry_mouth": 0.35,
+               "constipation": 0.35, "orthostatic": 0.25},
+    "利培酮": {"prolactin": 0.80, "eps_stiff": 0.50, "weight_gain": 0.50, "sedation": 0.35,
+               "orthostatic": 0.30},
+    "氯氮平": {"sedation": 0.90, "weight_gain": 0.90, "appetite_up": 0.80, "constipation": 0.80,
+               "dry_mouth": 0.70, "orthostatic": 0.60, "prolactin": 0.20},
+    "氟哌啶醇": {"eps_stiff": 0.90, "akathisia": 0.80, "tremor": 0.70, "prolactin": 0.60,
+                 "sedation": 0.30, "dry_mouth": 0.30},
+    "舍曲林": {"nausea": 0.50, "sexual": 0.50, "dry_mouth": 0.30, "sweating": 0.30,
+               "headache": 0.25, "activation": 0.30},
+    "氟西汀": {"nausea": 0.50, "sexual": 0.50, "activation": 0.50, "headache": 0.25,
+               "sweating": 0.25, "insomnia": 0.30},
+    "文拉法辛": {"nausea": 0.50, "sweating": 0.55, "dry_mouth": 0.35, "sexual": 0.40,
+                 "orthostatic": 0.30, "headache": 0.20},
+    "米氮平": {"sedation": 0.80, "appetite_up": 0.90, "weight_gain": 0.80, "dry_mouth": 0.40},
+    "锂盐": {"tremor": 0.70, "polyuria": 0.80, "dry_mouth": 0.40, "weight_gain": 0.50,
+             "memory": 0.30, "nausea": 0.25},
+    "丙戊酸": {"weight_gain": 0.70, "appetite_up": 0.60, "tremor": 0.40, "memory": 0.20},
+    "拉莫三嗪": {"rash": 0.45, "headache": 0.30, "nausea": 0.30, "orthostatic": 0.15},
+    "氯硝西泮": {"sedation": 0.80, "memory": 0.60, "orthostatic": 0.40, "dry_mouth": 0.30},
+    "丁螺环酮": {"nausea": 0.30, "headache": 0.35, "orthostatic": 0.15},
+    "普萘洛尔": {"orthostatic": 0.50, "sedation": 0.30, "sexual": 0.20},
+    "哌甲酯": {"appetite_down": 0.70, "insomnia": 0.60, "headache": 0.30, "tremor": 0.25},
+    "托莫西汀": {"nausea": 0.40, "appetite_down": 0.40, "dry_mouth": 0.40, "sedation": 0.20},
+    "纳曲酮": {"nausea": 0.50, "headache": 0.30, "appetite_down": 0.30},
+    "褪黑素": {"sedation": 0.30, "headache": 0.20},
+    "电休克": {"memory": 0.90, "headache": 0.50, "nausea": 0.40},
+}
+
+# 剂量超过 1.0 时副作用的额外放大：副作用比疗效更依赖剂量，个体化加量常先撞到副作用
+DOSE_SIDE_GAIN = 0.60
+
+
+def severity_zh(v: float) -> str:
+    if v >= 0.75:
+        return "明显"
+    if v >= 0.50:
+        return "中度"
+    if v >= 0.25:
+        return "轻微"
+    return "刚出现"
+
+
+def side_effects(meds: List[Dict[str, Any]], turn: int) -> List[Dict[str, Any]]:
+    """当前已出现的躯体副作用，按强度降序。"""
+    out: List[Dict[str, Any]] = []
+    for m in meds or []:
+        name = m.get("name", "")
+        prof = SIDE_PROFILE.get(name)
+        if not prof:
+            continue
+        on = turn - int(m.get("start_turn", turn))
+        dose = float(m.get("dose", 1.0))
+        amp = 1.0 + DOSE_SIDE_GAIN * max(0.0, dose - 1.0)
+        for sid, coef in prof.items():
+            meta = SIDE_DEFS.get(sid)
+            if not meta:
+                continue
+            r = ramp(on, SIDE_ONSET.get(sid, 3.0))
+            v = min(1.0, coef * min(1.0, dose) * r * amp)
+            if v < 0.05:
+                continue
+            out.append({
+                "id": sid, "zh": meta[0], "desc": meta[1], "drug": name,
+                "intensity": round(v, 3), "level": severity_zh(v), "on": on,
+            })
+    out.sort(key=lambda d: -d["intensity"])
+    return out
+
+
+def sedation_level(meds: List[Dict[str, Any]], turn: int) -> float:
+    """镇静深度：影响语速、句子长度与反应速度，是「主动表现」最直接的抓手。"""
+    total = 0.0
+    for m in meds or []:
+        spec = DRUGS.get(m.get("name", ""))
+        if not spec:
+            continue
+        sed = float(spec.get("sedation", 0.0) or 0.0)
+        if sed <= 0:
+            continue
+        on = turn - int(m.get("start_turn", turn))
+        r = ramp(on, 1.5)
+        total += sed * float(m.get("dose", 1.0)) * r
+    return max(0.0, min(1.0, total))
+
+
 def resolve(name: str) -> str | None:
     name = (name or "").strip()
     if name in DRUGS:
@@ -227,4 +370,12 @@ def active_effects(meds: List[Dict[str, Any]], turn: int) -> Dict[str, Any]:
 
         if r > 0.05:
             notes.append(f"{m['name']}（第{on}轮，效应 {r:.0%}）")
-    return {"bio": bio, "sym": sym, "notes": notes}
+
+    # 副作用：独立成一层，只有少数几条会顺带压到症状层
+    sides = side_effects(meds, turn)
+    for s in sides:
+        for k, v in (SIDE_SYM.get(s["id"]) or {}).items():
+            sym[k] = sym.get(k, 0.0) + v * s["intensity"]
+
+    return {"bio": bio, "sym": sym, "notes": notes,
+            "side": sides, "sedation": sedation_level(meds, turn)}

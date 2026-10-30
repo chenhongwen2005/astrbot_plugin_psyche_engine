@@ -221,6 +221,9 @@ class Dynamics:
         # 症状层效应挂到 meta，供 _update_symptoms 使用
         st.meta["_med_sym"] = eff["sym"]
         st.meta["_med_notes"] = eff["notes"]
+        # 副作用独立成层：注入块与卡片都从这里取，不再混进诊断
+        st.meta["side_effects"] = eff.get("side") or []
+        st.meta["sedation"] = round(float(eff.get("sedation", 0.0)), 3)
 
     # ------------------------------------------------------------------
     # 5. HPA 三级瀑布（延迟 2~3 轮）
