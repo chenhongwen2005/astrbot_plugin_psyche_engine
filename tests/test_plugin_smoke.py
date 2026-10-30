@@ -65,7 +65,8 @@ def test_inject_dynamic() -> None:
     part = req.extra_user_content_parts[0]
     assert getattr(part, "text", ""), "插入的 part 没有 text"
     assert "<psyche_runtime" in part.text, "注入块缺少 <psyche_runtime> 根标签"
-    assert getattr(part, "_is_temp", False), "注入块没有标记为临时内容（会污染历史与缓存）"
+    assert getattr(part, "_no_save", False), \
+        "注入块没有标记 _no_save（会写进对话历史，污染上下文与提示词缓存）"
     assert "最高优先级" in (req.system_prompt or ""), "缺少常驻权威声明"
     print(f"[ok] dynamic 注入（块 {len(part.text)} 字，已 mark_as_temp）")
 

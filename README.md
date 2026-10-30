@@ -73,8 +73,19 @@ python demo.py                     # 端到端演示，打印注入块原文
 ```
 
 `test_plugin_smoke.py` 用 `tests/_stub/` 里的最小 `astrbot` 包顶替真身，把插件真的 import、
-实例化、跑一轮注入——它能发现"一装就崩"级别的接口错误（属性名写错、API 字段不存在），
-但不能替代真机联调。
+实例化、跑一轮注入——它能发现"一装就崩"级别的接口错误（属性名写错、API 字段不存在）。
+
+**真机验证**（已装 AstrBot 时推荐）：
+
+```bash
+python tools/verify_in_astrbot.py
+```
+
+它用 AstrBot 自带的解释器加载真实的 `astrbot` 包，做三件事：核对插件依赖的每个 API 是否存在、
+用真实 `ProviderRequest`/`TextPart` 跑一遍注入（并确认 `mark_as_temp()` 让内容不写入历史）、
+检查 16MB 体积等上架硬性要求。会自动从启动日志里找到 AstrBot 的安装位置，也可用
+`--backend` / `--astrbot-home` 指定。**注意**：stub 测试通过只说明"接口按我的理解对得上"，
+真机验证才能说明"在真框架里跑得通"，两者互补。
 
 ---
 
@@ -467,6 +478,8 @@ astrbot_plugin_psyche_engine/
 ├── requirements.txt      # 空（纯标准库）
 ├── LICENSE               # MIT + 非医疗器械声明
 ├── demo.py               # 无需 AstrBot 的链路演示
+├── tools/
+│   └── verify_in_astrbot.py  # 在真实 AstrBot 里验证 API / 加载 / 注入 / 上架要求
 ├── tests/
 │   ├── test_engine.py        # 14 组纯逻辑自测
 │   ├── test_plugin_smoke.py  # 7 组插件加载/注入/元数据自测
@@ -521,6 +534,7 @@ AstrBot 的市场不接收 zip 上传，而是**从你的 GitHub 仓库拉取**�
 ```bash
 python tests/test_engine.py        # 逻辑层
 python tests/test_plugin_smoke.py  # 接口层 + metadata 一致性
+python tools/verify_in_astrbot.py  # 真机：API 对齐 + 加载 + 注入 + 上架硬性要求
 ```
 
 市场详情页会展示 `logo.png`（可选，1:1，推荐 256×256），放在插件根目录即可。
