@@ -22,6 +22,7 @@ from psyche.appraisal import (appraise_fallback, detect_crisis,  # noqa: E402
 from psyche.const import SYM  # noqa: E402
 from psyche.criteria import BY_CODE, CORE, DISORDERS  # noqa: E402
 from psyche.diagnose import diagnose  # noqa: E402
+from psyche.dynamics import Dynamics  # noqa: E402
 from psyche.engine import Engine  # noqa: E402
 from psyche.store import Store  # noqa: E402
 
@@ -325,6 +326,35 @@ def test_recovery_is_graded() -> None:
           f"慢性化 {chronic_peak:.2f}→{st.meta['chronicity']:.2f}")
 
 
+def test_negative_symptoms_not_from_serotonin() -> None:
+    """阴性症状不该由单纯 5-HT 低驱动，否则抑郁会被演成精分。
+
+    ng_p 里 ser 项曾占 0.32，而同一个 5-HT 下降在 md_p 里已经算过一遍，
+    结果 mdd_severe 的 ps_negative_symptom_cluster 高达 0.178，反而压倒
+    schizophrenia_paranoid 的 0.075（比健康人 0.098 还低）—— 阴性症状全
+    压在抑郁身上，而精分的 DA 本就偏高（阳性症状），生化学上产生不了阴性
+    症状，它的标志是 DLPFC 低（0.38~0.50，健康与抑郁都是 0.70）。
+    """
+    d = Dynamics(CFG)
+    v = {}
+    for name in ("healthy", "mdd_severe", "schizophrenia_paranoid", "schizophrenia_disorganized"):
+        st = presets.get(name)
+        d.step(st, {"dims": {}, "domains": {}})
+        v[name] = float(st.sym.get("ps_negative_symptom_cluster", 0.0))
+
+    assert v["schizophrenia_disorganized"] > v["healthy"] + 0.01, (
+        f"精分紊乱型阴性症状 {v['schizophrenia_disorganized']:.3f} 未高于健康 "
+        f"{v['healthy']:.3f}，DLPFC 项可能失效"
+    )
+    assert v["mdd_severe"] < v["healthy"] * 2.0, (
+        f"抑郁阴性症状 {v['mdd_severe']:.3f} 相对健康 {v['healthy']:.3f} 过高，"
+        f"5-HT 项又回到主导地位"
+    )
+    print(f"[ok] 阴性症状归因正确（健康 {v['healthy']:.3f}｜偏执型 "
+          f"{v['schizophrenia_paranoid']:.3f}｜紊乱型 "
+          f"{v['schizophrenia_disorganized']:.3f}｜重度抑郁 {v['mdd_severe']:.3f}）")
+
+
 def test_block_contract() -> None:
     st = presets.get("schizophrenia_paranoid")
     st.meta["hot"] = {"ps_hallucination_auditory": 0.8}
@@ -528,6 +558,7 @@ if __name__ == "__main__":
     test_sustained_abuse_onset()
     test_comfort_does_not_flip_to_mania()
     test_recovery_is_graded()
+    test_negative_symptoms_not_from_serotonin()
     test_block_contract()
     test_crisis_override()
     test_scales_integrity()
