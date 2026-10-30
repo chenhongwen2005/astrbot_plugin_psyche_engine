@@ -65,8 +65,6 @@ class PsycheEnginePlugin(Star):
         return umo
 
     async def _provider(self, event: AstrMessageEvent):
-        if self.config.get("appraisal_mode", "lexicon") == "lexicon":
-            return None
         try:
             return await self.context.get_using_provider_async(umo=event.unified_msg_origin)
         except Exception:

@@ -74,7 +74,6 @@ def main() -> None:
         "stochastic": True,
         "enable_circadian": True,
         "therapy_enabled": True,
-        "appraisal_mode": "llm",
         "max_block_chars": 1800,
     }
     eng = Engine(cfg, Store(path))

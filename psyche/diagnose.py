@@ -173,7 +173,11 @@ def diagnose(st: MindState, cfg: Dict[str, Any] | None = None) -> Diagnosis:
 
         # 病程时限：急性/短暂性诊断不能用来解释一个已经病了 200 轮的人
         max_t = int(d.get("max_turns") or 0)
-        dur_cap = duration if onset is not None else prior_duration
+        # 未确诊时没有起病点，用「观察期长度」代替病程。
+        # 否则会形成死锁：确诊需要病程，病程又要确诊后才开始累积，
+        # 结果 dur 恒为 0，任何有 min_turns 的障碍永远够不着门槛
+        # （实测 200 轮持续侮辱/贬损，dur 一直是 0，严重度 35 却诊断不出任何东西）。
+        dur_cap = duration if onset is not None else max(prior_duration, turn)
         if max_t and dur_cap > max_t:
             logit -= 2.4 * min(2.0, dur_cap / max(1, max_t))
 

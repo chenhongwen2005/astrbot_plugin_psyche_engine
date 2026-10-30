@@ -44,17 +44,6 @@
     "type": "int",
     "default": 1800
   },
-  "appraisal_mode": {
-    "description": "话语评估方式",
-    "type": "string",
-    "default": "lexicon",
-    "options": [
-      "lexicon",
-      "llm",
-      "hybrid"
-    ],
-    "hint": "lexicon=本地词典零成本；llm=额外调用一次模型做结构化评估（更准但更慢更贵）；hybrid=词典为主，仅在高强度语句时用模型复核"
-  },
   "appraisal_timeout": {
     "type": "int",
     "default": 12,
@@ -64,7 +53,7 @@
       "step": 1
     },
     "description": "话语评估（模型模式）超时（秒）",
-    "hint": "只在 appraisal_mode 为 llm / hybrid 时生效；超时自动退回本地词典，不会阻塞回复"
+    "hint": "话语评估超时（秒）；超时或模型不可用时退回兜底：只保危机安全覆盖，不猜状态"
   },
   "enable_circadian": {
     "description": "启用昼夜节律（皮质醇晨高夜低、褪黑素、腺苷）",

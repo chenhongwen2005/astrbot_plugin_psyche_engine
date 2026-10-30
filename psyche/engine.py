@@ -1,7 +1,7 @@
 """引擎：把"一条消息"变成"一次精神状态演化"。
 
 对外的唯一入口是 `Engine.turn()`，它是异步的，因为关键词抽取可以交给模型做。
-没有模型 / 模型超时 / 返回垃圾时，自动退回词典路径，绝不阻塞对话。
+没有模型 / 模型超时 / 返回垃圾时，退回兜底（不猜状态、只保危机），绝不阻塞对话。
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from . import narrative, pharm, presets, scales as scales_mod
-from .appraisal import (DOMAIN_KEYS, EXTRACT_PROMPT, appraise_lexicon,
-                        apply_keyword_nudges, parse_llm_output)
+from .appraisal import (DOMAIN_KEYS, EXTRACT_PROMPT, appraise_fallback,
+                        apply_keyword_nudges, detect_crisis, parse_llm_output)
 from .diagnose import Diagnosis, diagnose, update_state
 from .dynamics import Dynamics
 from .model import MindState
@@ -123,7 +123,7 @@ class Engine:
         async with self._lock(key):
             st = self.load(key)
             if not (text or "").strip():
-                ap = appraise_lexicon("", st, self.cfg)
+                ap = appraise_fallback("", self.cfg)
             else:
                 ap = await self._appraise(st, text, provider)
 
@@ -154,9 +154,14 @@ class Engine:
 
     # ------------------------------------------------------------------
     async def _appraise(self, st: MindState, text: str, provider) -> Dict[str, Any]:
-        mode = self.cfg.get("appraisal_mode", "lexicon")
-        if mode == "lexicon" or provider is None:
-            return appraise_lexicon(text, st, self.cfg)
+        """话语 → 心理社会冲击。只有一条主路径：模型抽取。
+
+        拿不到模型（未配置 / 超时 / 输出解析失败）时退到 appraise_fallback：
+        只保安全判定，维度全零。不退回词表猜——词表的召回与强度都不足以
+        驱动状态，猜错比不猜更伤（见 appraisal.appraise_fallback 的说明）。
+        """
+        if provider is None:
+            return appraise_fallback(text, self.cfg)
 
         try:
             raw = await asyncio.wait_for(
@@ -166,14 +171,15 @@ class Engine:
             ap = parse_llm_output(raw, text, st)
             if ap:
                 if not ap.get("crisis"):
-                    # 模型漏判时用词典兜底补一次
-                    lex = appraise_lexicon(text, st, self.cfg)
-                    ap["crisis"] = bool(lex.get("crisis"))
+                    # 模型漏判危机时本地补一次：安全判定不能只依赖模型
+                    ap["crisis"] = detect_crisis(text)
                 return ap
         except Exception:
             pass
 
-        return appraise_lexicon(text, st, self.cfg)
+        fb = appraise_fallback(text, self.cfg)
+        fb["degraded"] = True
+        return fb
 
     async def _call_llm(self, provider, text: str) -> str:
         prompt = EXTRACT_PROMPT.format(text=(text or "")[:1000])

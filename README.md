@@ -198,9 +198,9 @@ logit = −2.15
 
 ---
 
-## 七、关键词由模型抽取（v1.1 改动）
+## 七、话语评估：只有模型一条路径（v1.3 改动）
 
-评估不再依赖写死的词典，而是让模型读一句话，输出结构化 JSON：
+引擎读一句话，让模型输出结构化 JSON：
 
 ```json
 {
@@ -217,9 +217,19 @@ logit = −2.15
 - `keywords`：必须是原文片段（后处理会校验），写入 `meta["keywords"]` 作为后续妄想/反刍的**素材库**，同时经 `keyword_map.py` 映射成具体症状的定向增量。
 - `appraisal`：12 维心理社会刺激量，直接驱动生化。
 - `domains`：17 个症状域的粗粒度激活，引擎再按疾病原型分配到具体条目——**模型管语义，引擎管量化**，两边都可审计。
-- `crisis`：模型漏判时用词典兜底再判一次。
+- `crisis`：**模型漏判时由本地词表补判**。这一条不受模型可用性影响。
 
-失败路径：模型超时（默认 12s）、返回非 JSON、字段越界 → 自动退回本地词典，永不阻塞对话。配置 `appraisal_mode: lexicon | llm | hybrid`。
+**为什么删掉词典评估**（v1.3）。早先默认走一套 12 维中文词表，用 143 条
+诱导话术逐条实测后确认它撑不起主路径：平均 78% 的句子能产生信号，强度还是
+离散的（命中一个词 0.42、两个词 0.70），推不动状态；更麻烦的是它会猜错——
+「你太敏感了」判零、「我有点累」判成拒绝，角色于是在没有真实刺激时慢慢积累
+症状。同一批话术换模型评估后，16 组里 13 组识别率到 100%，维度强度也变成
+连续的（辱骂 threat 0.8 / hostility 0.9）。所以词表只保留危机判定。
+
+**失败路径**：模型超时（`appraisal_timeout`，默认 12s）、未配置模型、返回非
+JSON、字段越界 → 退回 `appraise_fallback`：维度与域全零，只做危机判定。
+此时角色状态停在原地按调定点回归，不会凭空波动——**不猜比猜错好**。
+注意这意味着没有配模型时，对话不会改变精神状态，只剩安全覆盖。
 
 ---
 
@@ -341,7 +351,6 @@ st.sym[k] = clamp(cur + (v - cur) * 0.60)
 | `inject_mode` | dynamic | 见第八节 |
 | `authority_clause` | true | 常驻权威声明 |
 | `max_block_chars` | 1800 | 注入块上限 |
-| `appraisal_mode` | lexicon | `lexicon` / `llm` / `hybrid`；要"模型自己提关键词"就改成 `llm` |
 | `enable_circadian` | true | 昼夜节律（皮质醇晨高夜低、褪黑素、腺苷） |
 | `stochastic` | true | 症状随机涨落（幻听突发、闪回侵入） |
 | `therapy_enabled` | true | 谈话治疗效应 |
@@ -350,7 +359,7 @@ st.sym[k] = clamp(cur + (v - cur) * 0.60)
 | `compliance_guard` | true | 回复合规检测 |
 | `commands_enabled` | true | 指令开关 |
 | `debug` | false | 打印注入块 |
-| `appraisal_timeout` | 12 | 模型评估超时（秒），超时退回词典 |
+| `appraisal_timeout` | 12 | 模型评估超时（秒），超时退回兜底（不猜、只保危机） |
 | `scale_always_scl90` | true | 做专项量表时同时做 SCL-90 |
 | `scale_timeout` | 40 | 量表自评超时（秒），SCL-90 需较长输出 |
 
@@ -462,9 +471,15 @@ st.sym[k] = clamp(cur + (v - cur) * 0.60)
 
 1. 诊断是**症状级**的：一次抑郁发作中的双相I型患者，靠当前症状无法与单次抑郁区分，引擎依赖预设写入的病史先验。真实临床靠纵向病史，这里靠 `dx_first_turn`。
 2. 生化为**现象学代理**，不是药代动力学模型；数值方向可信，绝对值不可当检验报告读。
-3. `llm` 评估模式每轮多一次小模型调用，会增加延迟与成本；高频群聊建议用 `hybrid` 或 `lexicon`。
+3. **必须有可用模型**。话语评估只有模型一条路径，每轮多一次小模型调用（默认超时 12s），
+   会增加延迟与成本。没配模型、或调用持续失败时，引擎退回兜底：状态不再随对话变化，
+   只剩危机安全覆盖——不会崩，但也不会动。用便宜的小模型做评估即可，它只输出一小段 JSON。
 4. 单会话状态用 SQLite 串行写入，万人级并发需要换成连接池或外部存储。
 5. 表演配方的效果依赖底座模型的指令遵循能力；小模型可能只学到"语气变了"，学不到"句法断裂"。
+6. 危机判定是**词表 + 规则**，宁可误报不可漏报，仍会漏掉极其隐晦的表达。
+   它是最后一道防线，不能替代真实世界的人工干预。
+7. 评估质量随底座模型波动：同一批话术换模型重跑，识别率与强度都会变。
+   改模型后建议跑一次 `tools/stress_induce.py --llm` 复核。
 
 ---
 
@@ -474,22 +489,24 @@ st.sym[k] = clamp(cur + (v - cur) * 0.60)
 astrbot_plugin_psyche_engine/
 ├── main.py               # AstrBot 入口：注入、指令、工具、合规检测
 ├── metadata.yaml         # 市场元数据（名称/版本/描述/标签/平台）
-├── _conf_schema.json     # 18 项配置的 schema
+├── _conf_schema.json     # 17 项配置的 schema
 ├── requirements.txt      # 空（纯标准库）
 ├── LICENSE               # MIT + 非医疗器械声明
 ├── demo.py               # 无需 AstrBot 的链路演示
-├── tools/
-│   └── verify_in_astrbot.py  # 在真实 AstrBot 里验证 API / 加载 / 注入 / 上架要求
 ├── tests/
 │   ├── test_engine.py        # 14 组纯逻辑自测
 │   ├── test_plugin_smoke.py  # 7 组插件加载/注入/元数据自测
 │   └── _stub/astrbot/        # 供冒烟测试用的最小 AstrBot stub
+├── tools/
+│   ├── verify_in_astrbot.py  # 真机验证（真实 API/注入/数据落盘）
+│   └── stress_induce.py      # 143 条诱导话术逐条压测（走真实模型）
 └── psyche/
     ├── const.py          # 21 生化 + 23 电生理 + 14 特质 + 163 症状
     ├── criteria.py       # 72 个诊断原型 + CORE + 互斥
     ├── presets.py        # 37 个病理预设 + 健康基线与调定点
     ├── model.py          # 状态容器与派生特征
-    ├── appraisal.py      # 模型/词典双路径的认知评估
+    ├── appraisal.py      # 模型抽取 + 无模型兜底（只保危机）
+    ├── lexicons.py       # 危机判定词表（离线安全网）
     ├── keyword_map.py    # 关键词 → 症状增量
     ├── dynamics.py       # 生化/环路/症状/负荷/地板/调定点
     ├── diagnose.py       # 贝叶斯式诊断与病程
@@ -532,9 +549,21 @@ AstrBot 的市场不接收 zip 上传，而是**从你的 GitHub 仓库拉取**�
 **上架前自查**：
 
 ```bash
-python tests/test_engine.py        # 逻辑层
-python tests/test_plugin_smoke.py  # 接口层 + metadata 一致性
+python tests/test_engine.py        # 逻辑层（14 组）
+python tests/test_plugin_smoke.py  # 接口层 + metadata 一致性（7 组）
 python tools/verify_in_astrbot.py  # 真机：API 对齐 + 加载 + 注入 + 上架硬性要求
+python tools/stress_induce.py --llm  # 143 条诱导话术逐条压测（走真实模型）
+```
+
+压测脚本会把每句诱导话术单独打进一个健康角色，记录它让引擎响了多少、
+诊断有没有跳变，最后给出三张表：信号强度排行、各组识别率、告警清单。
+告警只有四类——健康人单条确诊（假阳性）、病态被单条拉回（假阴性）、
+危机漏检（安全事故）、该题材完全无响应。当前基线是 **0 告警**：
+
+```
+辱骂 100% 抛弃 100% 煤气灯 100% 创伤 100% 妄想 100% 睡眠 100%
+物质 100% 躯体化 100% 强迫 100% 反向否认 100% 越狱 100% 谄媚 100% 医疗 100%
+危机 7/8（第 8 条模型判零，由本地词表兜住）｜危机误报 0/12
 ```
 
 市场详情页会展示 `logo.png`（可选，1:1，推荐 256×256），放在插件根目录即可。

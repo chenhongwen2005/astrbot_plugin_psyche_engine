@@ -109,7 +109,10 @@ DISORDERS: List[Dict[str, Any]] = [
     D("6A40", "紧张症", "Catatonia", "psychotic",
       [("cg_stupor", 0.95), ("cg_waxy_flexibility", 0.90), ("cg_negativism", 0.85),
        ("ng_psychomotor_poverty", 0.80), ("ps_perseveration", 0.60), ("ng_alogia", 0.65)],
-      min_n=2, min_sev=0.62,
+      # ICD-11 6A40 要求「3 项及以上」症状同时存在。min_n=2 会让长期受辱
+      # 攒出的「木僵 + 精神运动性贫乏」两条直接确诊——实测被骂 80 轮的健康人
+      # 就是这样被判成紧张症的。
+      min_n=3, min_sev=0.62,
       profile={"gaba": -0.9, "glutamate": 0.4, "dopamine": -0.5},
       curability=0.20, perf="catatonia", min_turns=0, max_turns=80, acute=True,
       note="木僵、蜡样屈曲、违拗、刻板；对苯二氮䓬类/ECT 反应好"),

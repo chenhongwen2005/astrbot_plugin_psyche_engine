@@ -222,7 +222,7 @@ def probe_plugin(plugins_dir: Path) -> bool:
     from astrbot.api.star import Context
 
     # Context 有十余个必填依赖，脱离内核无法构造；绕过 __init__ 拿真实例。
-    # 默认 lexicon 模式不会调用它的任何方法。
+    # 这里只验注入与指令，不真的调用模型，所以绕过 Context 的构造依赖。
     ctx = Context.__new__(Context)
     try:
         plugin = m.PsycheEnginePlugin(ctx, {})

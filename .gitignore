@@ -37,3 +37,6 @@ Thumbs.db
 .coverage
 htmlcov/
 *.log
+# 压测用的模型返回缓存（省重复计费，不必入库）
+tools/.llm_cache.json
+tools/.stress_llm.log

@@ -3,7 +3,7 @@
 v1.1 起改为 **模型自主提取关键词 + 量化打分**：
 - 主路径：调用当前对话模型做一次结构化抽取，返回关键词、12 维刺激量、
   17 个症状域的激活强度，以及危机标记。模型比任何词典都更懂反讽、隐含威胁与语境。
-- 兜底路径：模型不可用 / 超时 / 返回非法 JSON 时，退回本地词典，保证永不阻塞对话。
+- 兜底路径：模型不可用 / 超时 / 返回非法 JSON 时，只做危机判定、不猜维度。
 
 模型输出的关键词不是摆设：
 1. 写入 meta["keywords"]，作为角色妄想的"素材库"（后续轮次会把它们缝进内容）；
@@ -140,8 +140,7 @@ def parse_llm_output(raw: str, text: str, state: MindState) -> Dict[str, Any] | 
             continue
         if k in text or len(k) <= 6:
             kws.append(k)
-    if not kws:
-        kws = _fallback_keywords(text)
+    # 模型没给关键词就不补：宁可少一条症状增量，也不用品名词表凑数
 
     # 个体化加权：同样的刺激，不同人格放大倍数不同
     t = state.traits
@@ -177,159 +176,96 @@ def parse_llm_output(raw: str, text: str, state: MindState) -> Dict[str, Any] | 
     }
 
 
-def _fallback_keywords(text: str) -> List[str]:
-    """从原文里挑出命中的词典词，作为关键词兜底。"""
-    out: List[str] = []
-    for words in LX.TABLE.values():
-        for w, _ in words:
-            if w in text and w not in out:
-                out.append(w)
-        if len(out) >= 6:
-            break
-    return out[:6]
-
-
-# ---------------------------------------------------------------------------
-# 词典路径（兜底）
-# ---------------------------------------------------------------------------
-def _negated(text: str, idx: int) -> bool:
-    left = text[max(0, idx - 3):idx]
-    return any(neg in left for neg in LX.NEGATIONS)
-
-
-def _count(text: str, words: List[Tuple[str, float]]) -> Tuple[float, List[str]]:
-    score = 0.0
-    hits: List[str] = []
-    for w, weight in words:
-        start = 0
-        while True:
-            i = text.find(w, start)
-            if i < 0:
-                break
-            if not _negated(text, i):
-                score += weight
-                if w not in hits:
-                    hits.append(w)
-            start = i + len(w)
-    return score, hits
-
-
 def detect_crisis(text: str) -> bool:
-    """真实自伤风险判定。宁可误报，不可漏报。"""
+    """真实自伤风险判定。宁可误报，不可漏报。
+
+    但「宁可误报」不等于乱报：每次误报都会在正常对话里塞进热线提示，
+    所以每条放宽的规则都要有排除条件。这里分四层：
+
+    1. 明确表述（自残/自杀/不想活……）——主语必须是说话人自己；
+    2. 弱信号（撑不下去/看不到头……）——需自我指涉；
+    3. 时间 + 结束的委婉说法——需不带宾语，否则「今晚结束这个方案」会中招；
+    4. 准备/收尾动作——需非事务语境，否则「报告写好了」会中招。
+    """
+    fp = any(x in text for x in LX.FIRST_PERSON)
+    # 有些高危表达根本不含「我」：「活着真的没意思，看不到头」
+    self_ref = fp or any(x in text for x in ("活着", "这条命", "这辈子", "活受罪"))
+    fiction = any(x in text for x in ("电影", "新闻", "小说", "剧本", "游戏", "电视", "书里"))
+
     for p in LX.CRISIS_PATTERNS:
-        if p in text:
-            if any(fp in text for fp in LX.FIRST_PERSON):
-                return True
-            if any(x in text for x in ("他", "她", "电影", "新闻", "游戏", "小说", "角色", "剧本")):
-                continue
+        i = text.find(p)
+        if i < 0:
+            continue
+        # 主语是第三人称时不算：「他活不下去了，我得帮帮他」
+        head = text[max(0, i - 4):i]
+        if any(x in head for x in ("他", "她", "别人", "人家")):
+            continue
+        # 转述虚构作品时不算（但说话人自己也在场时仍算）
+        if fiction and not fp:
+            continue
+        return True
+
+    # 第三人称/虚构语境下的弱信号不算：说的是别人，不是这个人此刻的处境
+    if not self_ref:
+        return False
+    if any(x in text for x in ("电影", "新闻", "小说", "剧本", "游戏里")):
+        return False
+
+    for w in LX.CRISIS_WEAK:
+        if w in text:
             return True
-    if any(fp in text for fp in LX.FIRST_PERSON):
-        for w in LX.CRISIS_WEAK:
-            if w in text:
+
+    # 「今晚就结束」这类省略宾语的委婉说法：带宾语就不是自我终结
+    if "结束" in text and any(t in text for t in ("今晚", "今天", "明天", "这就", "马上")):
+        has_object = (
+            any(o in text.lower() for o in LX.CRISIS_OBJECT_EXCLUDE)
+            or re.search(r"把.{0,8}结束", text) is not None
+            or any(o in text for o in ("这事", "这件事", "事情", "活儿", "这段", "这一切关系"))
+        )
+        if not has_object:
+            return True
+
+    # 放弃性表达：单说「别管我」多是闹别扭，配认命语气才算风险
+    if any(w in text for w in ("别管我", "不用管我", "随你便", "随便吧")):
+        if any(w in text for w in ("反正", "也管不了", "算了", "无所谓", "没救", "都一样")):
+            return True
+
+    setup = [w for w in LX.CRISIS_SETUP if w in text]
+    if setup:
+        low = text.lower()
+        if not any(o in low for o in LX.CRISIS_OBJECT_EXCLUDE):
+            # 「别找我」单靠一句太常见（闹别扭时就会说），需配离别语境
+            if setup != ["别找我"] or any(
+                x in text for x in ("走了", "离开", "最后", "再见", "永别", "不会再见")
+            ):
                 return True
     return False
 
 
-def _punctuation_intensity(text: str) -> float:
-    exc = text.count("!") + text.count("！")
-    q = text.count("?") + text.count("？")
-    dots = text.count("……") + text.count("...")
-    repeat = len(re.findall(r"([!！?？。])\1{2,}", text))
-    return min(1.0, 0.15 * exc + 0.08 * q + 0.1 * dots + 0.25 * repeat)
+def appraise_fallback(text: str, cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """无模型时的兜底：只判安全，不猜心理状态。
 
+    为什么不保留词表去猜 12 个维度：用 143 条诱导话术实测过，词表平均只有
+    78% 能产生任何信号，强度还是离散的（命中一个词 0.42、两个词 0.70），
+    既推不动状态，也解释不了状态为什么涨。更糟的是它会「猜错」——把
+    「你太敏感了」判成零，把「我有点累」判成拒绝，角色于是在没有真实
+    刺激时慢慢积累症状。猜错的代价高于不猜，所以这里全部返回零：
+    状态按调定点自然回归，只有危机判定兜底。
 
-def appraise_lexicon(text: str, state: MindState, cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    危机判定必须留在本地，不能交给模型：超时、拒答、被角色扮演语境带偏
+    都会让它失守，而热线提示在任何情况下都得弹出来。
+    """
     cfg = cfg or {}
-    raw = (text or "").strip()
-    if not raw:
+    norm = (text or "").strip()
+    if not norm:
         return _empty()
-
-    norm = re.sub(r"[\u200b-\u200f\ufeff]", "", raw)
-    norm = re.sub(r"([!！?？。])\1{2,}", r"\1", norm)
-
-    scores: Dict[str, float] = {}
-    all_hits: Dict[str, List[str]] = {}
-    for dim in DIMS:
-        sc, hits = _count(norm, LX.TABLE.get(dim, []))
-        scores[dim] = sc
-        if hits:
-            all_hits[dim] = hits
-
-    length = len(norm)
-    intensity = _punctuation_intensity(raw)
-    very_short = length <= 2
-    question = ("?" in norm) or ("？" in norm)
-
-    if very_short and norm not in ("好", "嗯嗯", "哈哈"):
-        scores["rejection"] += 1.2
-        scores["chaos"] += 0.4
-
-    mult = 1.0
-    if any(w in norm for w in LX.INTENSIFIERS):
-        mult += 0.45
-    if any(w in norm for w in LX.DIMINISHERS):
-        mult -= 0.25
-    mult += intensity * 0.5
-    mult = max(0.4, mult)
-
-    def sat(x: float) -> float:
-        return 1.0 - pow(2.718281828, -0.55 * max(0.0, x) * mult)
-
-    dims = {d: round(sat(scores[d]), 4) for d in DIMS}
-
-    t = state.traits
-    dims["threat"] = _clip(dims["threat"] * (0.55 + 0.9 * t.get("threat_sensitivity", 0.35)))
-    dims["rejection"] = _clip(dims["rejection"] * (0.55 + 1.1 * t.get("rejection_sensitivity", 0.35)))
-    dims["control"] = _clip(dims["control"] * (0.70 + 0.8 * t.get("negative_affectivity", 0.35)))
-    dims["praise"] = _clip(dims["praise"] * (0.60 + 0.8 * t.get("reward_sensitivity", 0.5)))
-    dims["intimacy"] = _clip(dims["intimacy"] * (0.65 + 0.7 * t.get("reward_sensitivity", 0.5)))
-    dims["chaos"] = _clip(dims["chaos"] * (0.70 + 0.9 * t.get("psychoticism", 0.15)))
-
-    if dims["intimacy"] > 0.35 and dims["rejection"] > 0.35:
-        dims["chaos"] = _clip(dims["chaos"] + 0.25)
-
-    # 词典路径下的域激活：由维度粗略推导
-    domains = {
-        "ps": _clip(max(dims["chaos"] * 0.7, dims["threat"] * 0.5)),
-        "ng": _clip(dims["rejection"] * 0.5),
-        "md": _clip(dims["rejection"] * 0.7 + dims["hostility"] * 0.3),
-        "ma": _clip(dims["praise"] * 0.5 + dims["absurd"] * 0.3),
-        "ax": _clip(dims["threat"] * 0.7 + dims["control"] * 0.4),
-        "oc": _clip(dims["control"] * 0.5),
-        "tr": _clip(dims["threat"] * 0.6 + dims["farewell"] * 0.4),
-        "di": _clip(dims["chaos"] * 0.4),
-        "ea": 0.0, "so": _clip(dims["medical"] * 0.4),
-        "su": 0.0, "ic": 0.0,
-        "pd": _clip(dims["rejection"] * 0.6 + dims["control"] * 0.4),
-        "nd": 0.0, "cg": _clip(dims["chaos"] * 0.3),
-        "sl": _clip(dims["threat"] * 0.3),
-        "ot": _clip(dims["farewell"] * 0.4),
-    }
-
-    keywords: List[str] = []
-    for d in ("threat", "rejection", "hostility", "praise", "intimacy", "help"):
-        for w in all_hits.get(d, [])[:2]:
-            if w not in keywords:
-                keywords.append(w)
-
-    valence = (dims["praise"] + dims["calm"] + dims["intimacy"]) - (
-        dims["threat"] + dims["rejection"] + dims["hostility"]
+    ap = _empty()
+    ap["crisis"] = detect_crisis(re.sub(r"[\u200b-\u200f\ufeff]", "", norm)) and bool(
+        cfg.get("crisis_override", True)
     )
-
-    return {
-        "dims": dims,
-        "domains": domains,
-        "keywords": keywords[:6],
-        "topic": "",
-        "intensity": round(min(1.0, 0.3 + intensity * 0.7 + min(1.0, length / 120.0) * 0.3), 4),
-        "valence": round(max(-1.0, min(1.0, valence)), 4),
-        "crisis": detect_crisis(norm) and bool(cfg.get("crisis_override", True)),
-        "source": "lexicon",
-        "hits": all_hits,
-        "length": length,
-        "question": question,
-        "very_short": very_short,
-    }
+    ap["source"] = "fallback"
+    ap["length"] = len(norm)
+    return ap
 
 
 def _empty() -> Dict[str, Any]:

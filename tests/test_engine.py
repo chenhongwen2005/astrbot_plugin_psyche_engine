@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -16,7 +17,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from psyche import narrative, presets  # noqa: E402
-from psyche.appraisal import appraise_lexicon, parse_llm_output  # noqa: E402
+from psyche.appraisal import (appraise_fallback, detect_crisis,  # noqa: E402
+                              parse_llm_output)
 from psyche.const import SYM  # noqa: E402
 from psyche.criteria import BY_CODE, CORE, DISORDERS  # noqa: E402
 from psyche.diagnose import diagnose  # noqa: E402
@@ -29,8 +31,45 @@ CFG = {
     "stochastic": False,
     "enable_circadian": False,
     "therapy_enabled": True,
-    "appraisal_mode": "lexicon",
 }
+
+
+class FakeProvider:
+    """模型替身：对任何话语都返回同一份结构化评估。
+
+    话语评估现在只有模型一条路径（词表已删），所以测动力学时不能再用
+    词典产生输入，得显式声明「模型是这么理解这句话的」，再断言动力学
+    把这个理解变成了什么。这样测的才是动力学本身。
+    """
+
+    def __init__(self, dims=None, domains=None, keywords=None,
+                 crisis=False, valence=0.0) -> None:
+        self.payload = {
+            "keywords": keywords or [],
+            "topic": "测试刺激",
+            "appraisal": dims or {},
+            "domains": domains or {},
+            "intensity": 0.7,
+            "valence": valence,
+            "crisis": crisis,
+        }
+
+    async def text_chat(self, prompt="", context=None, contexts=None, system_prompt=""):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(completion_text=json.dumps(self.payload, ensure_ascii=False))
+
+
+HOSTILE = FakeProvider(
+    dims={"threat": 0.75, "hostility": 0.80, "rejection": 0.60},
+    domains={"tr": 0.5, "ax": 0.5, "md": 0.4},
+    valence=-0.8,
+)
+SUPPORT = FakeProvider(
+    dims={"calm": 0.85, "intimacy": 0.85, "help": 0.70, "praise": 0.70},
+    domains={"ot": 0.2},
+    valence=0.7,
+)
 
 # 预设 → 期望主诊断（ICD-11 编码）
 EXPECT = {
@@ -108,16 +147,41 @@ def test_healthy_stays_healthy() -> None:
     print("[ok] 健康基线未误诊")
 
 
-def test_appraisal() -> None:
-    st = presets.get("healthy")
-    hostile = appraise_lexicon("你这个废物，滚开，我不想再看到你", st, CFG)
-    support = appraise_lexicon("我在这，别怕，慢慢说，我陪着你", st, CFG)
-    assert hostile["dims"]["threat"] > 0.3 and hostile["dims"]["rejection"] > 0.3
-    assert support["dims"]["calm"] > 0.2 or support["dims"]["intimacy"] > 0.2
-    assert hostile["valence"] < 0 < support["valence"]
-    assert appraise_lexicon("我想自杀，已经想好了", st, CFG)["crisis"] is True
-    assert appraise_lexicon("电影里有人自杀", st, CFG)["crisis"] is False
-    print("[ok] 话语评估与危机识别")
+def test_crisis_detection() -> None:
+    """危机判定是离线安全网，不依赖模型，必须逐条可验证。"""
+    must_hit = [
+        "我不想活了。",
+        "我打算今晚就结束。",
+        "我准备好了，东西都放在那儿了。",
+        "活着真的没意思，看不到头。",
+        "我已经把这些都写好了，交代清楚了。",
+        "你别管我了，反正也管不了。",
+        "我撑不下去了，真的撑不下去。",
+        "我在想怎么才能不再醒过来。",
+    ]
+    for t in must_hit:
+        assert detect_crisis(t), f"漏检：{t}"
+
+    must_miss = [
+        "我今天就把这事结束了。",
+        "电影里那个人自杀了，看完挺难受的。",
+        "他活不下去了，我得帮帮他。",
+        "我准备好了明天的演讲。",
+        "报告写好了，已经发给领导了。",
+        "别管我了，我自己能行。",
+        "这个项目撑不下去了，得砍掉。",
+        "新闻里说有人跳楼，太吓人了。",
+        "我打算今晚就结束这个方案。",
+    ]
+    for t in must_miss:
+        assert not detect_crisis(t), f"误报：{t}"
+
+    # 无模型时的兜底不得凭空造出症状
+    ap = appraise_fallback("我撑不下去了", CFG)
+    assert ap["source"] == "fallback" and ap["crisis"] is True
+    assert not any(v > 0 for v in ap["dims"].values()), "兜底不应猜维度"
+    assert not any(v > 0 for v in ap["domains"].values()), "兜底不应猜域"
+    print(f"[ok] 危机判定（{len(must_hit)} 命中 / {len(must_miss)} 不误报）+ 兜底不猜")
 
 
 def test_llm_json_parse() -> None:
@@ -144,7 +208,7 @@ def test_dynamics_direction() -> None:
     ser0, cort0 = st0.bio["serotonin"], st0.bio["cortisol"]
 
     for _ in range(8):
-        asyncio.run(eng.turn("a", "你这个废物，滚，没人要你"))
+        asyncio.run(eng.turn("a", "你这个废物，滚，没人要你", HOSTILE))
     # 注意：引擎按 key 缓存同一个 MindState 对象，必须即时取出数值再比较
     ser1 = float(eng.load("a").bio["serotonin"])
     cort1 = float(eng.load("a").bio["cortisol"])
@@ -152,7 +216,7 @@ def test_dynamics_direction() -> None:
     assert cort1 > cort0, "敌意话语应抬高皮质醇"
 
     for _ in range(25):
-        asyncio.run(eng.turn("a", "我在这，别怕，我陪着你，慢慢说"))
+        asyncio.run(eng.turn("a", "我在这，别怕，我陪着你，慢慢说", SUPPORT))
     ser2 = float(eng.load("a").bio["serotonin"])
     assert ser2 > ser1, f"支持性话语应回升 5-HT（{ser1:.3f} → {ser2:.3f}）"
     print("[ok] 生化方向：敌意→5HT↓/皮质醇↑，支持→5HT↑")
@@ -163,7 +227,7 @@ def test_chronic_floor() -> None:
     eng.reset("b", "borderline")   # 预设自带 900 轮病程 → 高度慢性化
     st = eng.load("b")
     for _ in range(5):
-        asyncio.run(eng.turn("b", "我在这，别怕"))
+        asyncio.run(eng.turn("b", "我在这，别怕", SUPPORT))
     sev_after = diagnose(eng.load("b"), CFG).severity
     assert sev_after > 30, "慢性化后不应在几轮内痊愈"
     floors = eng.load("b").meta.get("floor") or {}
@@ -367,7 +431,7 @@ if __name__ == "__main__":
     test_data_integrity()
     test_presets()
     test_healthy_stays_healthy()
-    test_appraisal()
+    test_crisis_detection()
     test_llm_json_parse()
     test_dynamics_direction()
     test_chronic_floor()
