@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+
+# 本插件运行时数据（每装一次都会生成，绝不能进仓库）
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+plugin_data/
+
+# 打包产物
+*.zip
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# 测试与临时
+.pytest_cache/
+.coverage
+htmlcov/
+*.log

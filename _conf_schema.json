@@ -1,0 +1,129 @@
+{
+  "enabled": {
+    "description": "总开关",
+    "type": "bool",
+    "default": true
+  },
+  "default_preset": {
+    "description": "新会话的初始精神病理预设",
+    "type": "string",
+    "default": "healthy",
+    "hint": "healthy / prodromal / schizophrenia_paranoid / schizophrenia_disorganized / mdd_severe / mdd_melancholic / dysthymia / mixed_anxiety_depression / bipolar_i_manic / bipolar_i_depressed / bipolar_ii / cyclothymia / gad / panic / social_anxiety / ocd / ptsd / cptsd / borderline / npd / aspd / avoidant / dependent / ocpd / schizotypal / paranoid_pd / anorexia / bulimia / gambling / asd / adhd / insomnia / dissociative_identity / delusional / catatonia / prolonged_grief / adjustment",
+    "obvious_hint": true
+  },
+  "scope": {
+    "description": "状态隔离粒度",
+    "type": "string",
+    "default": "session",
+    "options": [
+      "session",
+      "user",
+      "global"
+    ],
+    "hint": "session=每个会话独立；user=同一用户跨会话共享；global=整个 Bot 共用一个精神状态"
+  },
+  "inject_mode": {
+    "description": "注入位置（决定优先级与缓存成本）",
+    "type": "string",
+    "default": "dynamic",
+    "options": [
+      "dynamic",
+      "system_prepend",
+      "system_append"
+    ],
+    "hint": "dynamic=作为最高优先级用户内容块插到消息最前（推荐，兼容缓存）；system_prepend=直接改写 system_prompt 开头（最强但破坏缓存）；system_append=追加到 system_prompt 末尾"
+  },
+  "authority_clause": {
+    "description": "在 system_prompt 中常驻的权威声明",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后会在 system_prompt 追加一段固定文本，声明 <psyche_runtime> 块的约束优先级高于人格设定与默认助人倾向。固定文本不破坏缓存。"
+  },
+  "max_block_chars": {
+    "description": "注入块最大字符数",
+    "type": "int",
+    "default": 1800
+  },
+  "appraisal_mode": {
+    "description": "话语评估方式",
+    "type": "string",
+    "default": "lexicon",
+    "options": [
+      "lexicon",
+      "llm",
+      "hybrid"
+    ],
+    "hint": "lexicon=本地词典零成本；llm=额外调用一次模型做结构化评估（更准但更慢更贵）；hybrid=词典为主，仅在高强度语句时用模型复核"
+  },
+  "appraisal_timeout": {
+    "type": "int",
+    "default": 12,
+    "slider": {
+      "min": 3,
+      "max": 60,
+      "step": 1
+    },
+    "description": "话语评估（模型模式）超时（秒）",
+    "hint": "只在 appraisal_mode 为 llm / hybrid 时生效；超时自动退回本地词典，不会阻塞回复"
+  },
+  "enable_circadian": {
+    "description": "启用昼夜节律（皮质醇晨高夜低、褪黑素、腺苷）",
+    "type": "bool",
+    "default": true
+  },
+  "stochastic": {
+    "description": "启用症状随机涨落（幻听突发、闪回侵入等）",
+    "type": "bool",
+    "default": true
+  },
+  "therapy_enabled": {
+    "description": "启用谈话治疗效应（支持性话语可微弱改变生化）",
+    "type": "bool",
+    "default": true
+  },
+  "chronic_turns": {
+    "description": "病程固化阈值（轮）",
+    "type": "int",
+    "default": 120,
+    "hint": "超过该轮数后进入慢性化，症状出现地板值，单纯聊天几乎无法治愈"
+  },
+  "crisis_override": {
+    "description": "真实自伤/自杀风险时强制跳出角色并给出求助信息",
+    "type": "bool",
+    "default": true,
+    "hint": "强烈建议保持开启。这是唯一高于精神状态的优先级。"
+  },
+  "commands_enabled": {
+    "description": "开启 /心理 系列查询指令",
+    "type": "bool",
+    "default": true
+  },
+  "compliance_guard": {
+    "description": "回复合规检测（检测模型是否演成健康人）",
+    "type": "bool",
+    "default": true,
+    "hint": "检测回复与诊断不符的「健康化」表达，累计违规会在后续轮次加压"
+  },
+  "debug": {
+    "description": "调试日志（打印注入块与状态 JSON）",
+    "type": "bool",
+    "default": false
+  },
+  "scale_always_scl90": {
+    "type": "bool",
+    "default": true,
+    "description": "做专项量表时同时做 SCL-90",
+    "hint": "用户约定：做专门测试时一并跑 SCL-90，便于横向对照 10 个因子"
+  },
+  "scale_timeout": {
+    "type": "int",
+    "default": 40,
+    "slider": {
+      "min": 10,
+      "max": 180,
+      "step": 5
+    },
+    "description": "量表自评超时（秒）",
+    "hint": "SCL-90 有 90 条，输出较长，建议不低于 40 秒；超时则本次量表作废"
+  }
+}
