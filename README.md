@@ -47,6 +47,12 @@
 
 ## 三、安装
 
+**方式一：插件市场（推荐）**
+
+在 AstrBot WebUI 的「插件」页 →「插件市场」搜索 **精神状态引擎**，点安装即可。
+
+**方式二：手动**
+
 ```bash
 # 1. 放进 AstrBot 插件目录
 cp -r astrbot_plugin_psyche_engine /path/to/AstrBot/data/plugins/
@@ -56,7 +62,19 @@ cp -r astrbot_plugin_psyche_engine /path/to/AstrBot/data/plugins/
 
 - 无第三方依赖（纯标准库），不需要 `pip install`。
 - 数据落在 `AstrBot/data/plugin_data/astrbot_plugin_psyche_engine/psyche.db`，升级插件不丢状态。
-- 自测：`python tests/test_engine.py`；演示：`python demo.py`（都不需要 AstrBot）。
+- 安装后随手发一句 `/心理` 能看到状态卡，就说明注入链路是通的。
+
+**本地自测**（都不需要 AstrBot）：
+
+```bash
+python tests/test_engine.py        # 14 组：数据完整性 / 动力学 / 诊断 / 量表
+python tests/test_plugin_smoke.py  # 7 组：插件加载 / 注入 / 指令 / 元数据一致性
+python demo.py                     # 端到端演示，打印注入块原文
+```
+
+`test_plugin_smoke.py` 用 `tests/_stub/` 里的最小 `astrbot` 包顶替真身，把插件真的 import、
+实例化、跑一轮注入——它能发现"一装就崩"级别的接口错误（属性名写错、API 字段不存在），
+但不能替代真机联调。
 
 ---
 
@@ -444,10 +462,15 @@ st.sym[k] = clamp(cur + (v - cur) * 0.60)
 ```
 astrbot_plugin_psyche_engine/
 ├── main.py               # AstrBot 入口：注入、指令、工具、合规检测
-├── metadata.yaml
-├── _conf_schema.json
+├── metadata.yaml         # 市场元数据（名称/版本/描述/标签/平台）
+├── _conf_schema.json     # 18 项配置的 schema
+├── requirements.txt      # 空（纯标准库）
+├── LICENSE               # MIT + 非医疗器械声明
 ├── demo.py               # 无需 AstrBot 的链路演示
-├── tests/test_engine.py  # 12 组自测（数据/预设/动力学/地板/契约/量表）
+├── tests/
+│   ├── test_engine.py        # 14 组纯逻辑自测
+│   ├── test_plugin_smoke.py  # 7 组插件加载/注入/元数据自测
+│   └── _stub/astrbot/        # 供冒烟测试用的最小 AstrBot stub
 └── psyche/
     ├── const.py          # 21 生化 + 23 电生理 + 14 特质 + 163 症状
     ├── criteria.py       # 72 个诊断原型 + CORE + 互斥
@@ -463,3 +486,41 @@ astrbot_plugin_psyche_engine/
     ├── engine.py         # 编排、事件、校准、合规
     └── store.py          # SQLite 持久化
 ```
+
+---
+
+## 十七、发布到插件市场
+
+AstrBot 的市场不接收 zip 上传，而是**从你的 GitHub 仓库拉取**。所以整个流程是「推仓库 → 到发布页登记」。
+
+1. **建一个公开 GitHub 仓库**，仓库名就用插件名 `astrbot_plugin_psyche_engine`（市场按目录名加载，名字对不上会出问题）。
+2. **改 `metadata.yaml` 的 `repo` 为真实地址**，`author` 改成你的署名：
+   ```yaml
+   repo: https://github.com/<你的用户名>/astrbot_plugin_psyche_engine
+   author: <你的署名>
+   ```
+3. **推上去**：
+   ```bash
+   git remote add origin https://github.com/<你的用户名>/astrbot_plugin_psyche_engine.git
+   git push -u origin main
+   ```
+4. **注册 AstrBot Cloud 账号**，然后到 <https://cloud.astrbot.app/publish> 提交你的仓库地址。
+5. 等 CI 校验与人工审核通过，市场里就能搜到了。
+
+**硬性要求**（不满足会被 CI 直接拒）：
+
+- 压缩包 **≤ 16MB**（本插件解压后 385KB、打包 147KB，远低于上限）。
+- 仓库里不要出现 `.git`、`__pycache__`、`node_modules`、数据库文件——`.gitignore` 已排除，别用 `git add -f` 强推。
+- `requirements.txt` 必须存在（本插件是空的，纯标准库）。
+- 依赖必须能用 pip 装；禁止用 `requests`，请改 `aiohttp` / `httpx`。
+
+**发新版**：改 `metadata.yaml` 的 `version`，同时改 `psyche/const.py` 的 `VERSION`（两处必须一致，`test_plugin_smoke.py` 会校验），提交推送后在发布页更新即可。
+
+**上架前自查**：
+
+```bash
+python tests/test_engine.py        # 逻辑层
+python tests/test_plugin_smoke.py  # 接口层 + metadata 一致性
+```
+
+市场详情页会展示 `logo.png`（可选，1:1，推荐 256×256），放在插件根目录即可。
