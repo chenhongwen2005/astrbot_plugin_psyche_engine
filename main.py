@@ -279,7 +279,7 @@ class PsycheEnginePlugin(Star):
             # ---------------- 身体侧 ----------------
             if sub in ("生理", "身体", "体感"):
                 st = self.engine.load(key)
-                yield event.plain_result(narrative._physio_section(st))
+                yield event.plain_result(narrative.render_body_section(st))
                 return
 
             if sub in ("体检", "化验", "检查"):

@@ -1069,6 +1069,12 @@ def _physio_section(st) -> str:
     return "\n".join(lines)
 
 
+def render_body_section(st) -> str:
+    """/心理 生理：与注入块里同一段文字，方便对照"模型看到的"和"实际的"。"""
+    text = _physio_section(st)
+    return text or "身体模块未启用（physio_enabled=false）。"
+
+
 def _physio_min(st) -> str:
     body = getattr(st, "body", None) or {}
     if not body:
