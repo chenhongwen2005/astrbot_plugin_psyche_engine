@@ -21,6 +21,7 @@ from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star
 
 from .psyche import Engine, MindState, VERSION, diagnose, narrative, presets
+from .psyche.compat import physio as _physio
 from .psyche.store import Store
 
 try:  # 不同版本路径略有差异，取不到就退回插件目录
@@ -31,6 +32,31 @@ try:  # 不同版本路径略有差异，取不到就退回插件目录
 except Exception:  # pragma: no cover
     def _data_root() -> str:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def _split_msg(text: str, size: int = 1600) -> List[str]:
+    """把长报告切成若干条消息。
+
+    体检报告有十几组、七千多字，一次发出会被平台截断（QQ 单条约 4KB），
+    截断比不给更糟——用户看到半张化验单会以为后面本来就没了。
+    按行切、只在行边界断开，保证每一行都完整。
+    """
+    text = text or ""
+    if len(text) <= size:
+        return [text] if text else []
+    out: List[str] = []
+    cur: List[str] = []
+    used = 0
+    for line in text.splitlines(keepends=True):
+        if used + len(line) > size and cur:
+            out.append("".join(cur))
+            cur, used = [], 0
+        cur.append(line)
+        used += len(line)
+    if cur:
+        out.append("".join(cur))
+    total = len(out)
+    return [f"（{i + 1}/{total}）\n{p}" if total > 1 else p for i, p in enumerate(out)]
 
 
 AUTHORITY_CLAUSE = (
@@ -248,6 +274,73 @@ class PsycheEnginePlugin(Star):
                     except ValueError:
                         pass
                 yield event.plain_result(self.engine.fast_forward(key, n))
+                return
+
+            # ---------------- 身体侧 ----------------
+            if sub in ("生理", "身体", "体感"):
+                st = self.engine.load(key)
+                yield event.plain_result(narrative._physio_section(st))
+                return
+
+            if sub in ("体检", "化验", "检查"):
+                panel = args[0] if args else ""
+                only_ab = panel in ("异常", "异常项")
+                text = self.engine.phys_report(key, "" if only_ab else panel, only_ab)
+                for part in _split_msg(text):
+                    yield event.plain_result(part)
+                return
+
+            if sub in ("生活", "作息", "日子表"):
+                yield event.plain_result(self.engine.phys_life(key))
+                return
+
+            if sub in ("日子", "日志", "身体日志"):
+                yield event.plain_result(self.engine.phys_log(key, 14))
+                return
+
+            if sub in ("服药", "吃药"):
+                if not args:
+                    yield event.plain_result(
+                        "用法：/心理 服药 <药名> [剂量]　\n"
+                        "不知道有哪些药可以 /心理 找药 <关键词>，"
+                        f"药库现有 {len(_physio.DRUGS)} 种。"
+                    )
+                    return
+                dose = 1.0
+                if len(args) > 1:
+                    try:
+                        dose = float(args[1])
+                    except ValueError:
+                        dose = 1.0
+                yield event.plain_result(self.engine.phys_med(key, args[0], dose))
+                return
+
+            if sub in ("找药", "查药"):
+                yield event.plain_result(self.engine.phys_find(key, " ".join(args)))
+                return
+
+            if sub in ("停服", "断药"):
+                if not args:
+                    yield event.plain_result("用法：/心理 停服 <药名>")
+                    return
+                yield event.plain_result(self.engine.phys_stop(key, args[0]))
+                return
+
+            if sub in ("推进", "advance"):
+                h = 24.0
+                if args:
+                    try:
+                        h = float(args[0])
+                    except ValueError:
+                        pass
+                yield event.plain_result(self.engine.phys_advance(key, h))
+                return
+
+            if sub in ("设置", "set"):
+                if len(args) < 2:
+                    yield event.plain_result("用法：/心理 设置 <维度> <值>，例如 /心理 设置 alcohol 3")
+                    return
+                yield event.plain_result(self.engine.phys_set(key, args[0], args[1]))
                 return
 
             if sub in ("重置", "reset"):

@@ -74,6 +74,9 @@ def default_meta() -> Dict[str, Any]:
 @dataclass
 class MindState:
     bio: Dict[str, float] = field(default_factory=_baseline_bio)
+    # 身体：器官功能、检验、生活方式、活动疾病。字段独立于精神侧，
+    # 两套模型只在 Physiology.couple() 处单向对接。
+    body: Dict[str, Any] = field(default_factory=dict)
     neuro: Dict[str, float] = field(default_factory=_baseline_neuro)
     sym: Dict[str, float] = field(default_factory=_baseline_sym)
     traits: Dict[str, float] = field(default_factory=_baseline_traits)
@@ -82,6 +85,7 @@ class MindState:
     # ---------------- 基本操作 ----------------
     def clone(self) -> "MindState":
         return MindState(
+            body=copy.deepcopy(self.body),
             bio=copy.deepcopy(self.bio),
             neuro=copy.deepcopy(self.neuro),
             sym=copy.deepcopy(self.sym),
@@ -116,7 +120,8 @@ class MindState:
     # ---------------- 序列化 ----------------
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "v": 1,
+            "v": 2,
+            "body": self.body,
             "bio": {k: round(v, 5) for k, v in self.bio.items()},
             "neuro": {k: round(v, 5) for k, v in self.neuro.items()},
             "sym": {k: round(v, 4) for k, v in self.sym.items() if v > 0.001},
@@ -130,6 +135,14 @@ class MindState:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MindState":
         st = cls()
+        raw_body = data.get("body") or {}
+        if raw_body:
+            try:
+                from .compat import physio as _P
+
+                st.body = _P.ensure_body(raw_body)
+            except Exception:
+                st.body = dict(raw_body)
         st.bio.update({k: float(v) for k, v in (data.get("bio") or {}).items() if k in st.bio})
         st.neuro.update({k: float(v) for k, v in (data.get("neuro") or {}).items() if k in st.neuro})
         st.sym.update({k: float(v) for k, v in (data.get("sym") or {}).items() if k in st.sym})

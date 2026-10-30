@@ -141,6 +141,45 @@ def test_response_and_commands() -> None:
     print(f"[ok] 指令与内省工具可用（{len(text)} 字）")
 
 
+def test_physio_commands() -> None:
+    """身体侧指令：每条都要有输出、不抛异常，且体检要分条发。"""
+    mod, ev_mod, _pr, st_mod = _load()
+    plugin = mod.PsycheEnginePlugin(st_mod.Context(), {"physio_hours_per_turn": 24})
+
+    async def _collect(msg: str) -> list[str]:
+        e = ev_mod.AstrMessageEvent(msg, umo="test:FriendMessage:phys")
+        out = []
+        async for r in plugin.psyche_cmd(e):
+            out.append(r[1] if isinstance(r, tuple) else str(r))
+        return out
+
+    # 先让身体过几天，才有东西可看
+    asyncio.run(_collect("/心理 推进 72"))
+
+    simple = ["/心理 生理", "/心理 生活", "/心理 日子", "/心理 体检 血常规",
+              "/心理 体检 异常", "/心理 找药 他汀", "/心理 设置 sleep_h 5.5",
+              "/心理 设置 不存在的维度 1", "/心理 服药 不存在的药"]
+    for cmd in simple:
+        lines = asyncio.run(_collect(cmd))
+        assert lines and lines[0].strip(), f"{cmd} 没有输出"
+        assert "Traceback" not in lines[0], f"{cmd} 抛异常"
+        assert "执行失败" not in lines[0], f"{cmd} 报错：{lines[0][:80]}"
+
+    # 服药 → 停药 闭环
+    asyncio.run(_collect("/心理 服药 奥美拉唑"))
+    out = asyncio.run(_collect("/心理 停服 奥美拉唑"))
+    assert "已停用" in out[0], f"停服未生效：{out[0][:80]}"
+
+    # 完整体检必然超长，必须切成多条，且每条都带序号
+    parts = asyncio.run(_collect("/心理 体检"))
+    assert len(parts) >= 2, f"完整体检没有分条（{len(parts)} 条）"
+    assert all(len(p) <= 2000 for p in parts), "分条后单条仍然过长"
+    assert parts[0].startswith("（1/"), "分条缺少序号"
+    assert any("参考" in p for p in parts), "分条后丢了参考区间"
+    print(f"[ok] 身体侧指令可用（体检切成 {len(parts)} 条，单条 ≤ "
+          f"{max(len(p) for p in parts)} 字）")
+
+
 def test_requirements_declared() -> None:
     """市场安装靠 requirements.txt 装依赖，文件必须存在（哪怕为空）。"""
     path = os.path.join(ROOT, "requirements.txt")
@@ -199,6 +238,7 @@ if __name__ == "__main__":
     test_inject_system_modes()
     test_enabled_switch_and_dedup()
     test_response_and_commands()
+    test_physio_commands()
     test_requirements_declared()
     test_metadata_consistency()
     print("\n冒烟测试全部通过。")

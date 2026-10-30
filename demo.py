@@ -132,6 +132,32 @@ def main() -> None:
         score = eng.observe_reply("demo", reply)
         print(f"  {score:.2f}  {reply}")
 
+    # ------------------------------------------------------------------
+    print("\n" + "═" * 78)
+    print("身体：让角色自己过四十天（吃饭、睡觉、出门、遇上坏天气）")
+    print("═" * 78)
+    from physio import body as pbody, report as preport
+
+    eng.phys_advance("demo", 24 * 22)
+    st_body = eng.load("demo")
+    print(preport.render_summary(st_body.body))
+
+    # 自己得一场感冒：不用脚本安排，这里只是把"随机发病"提前到演示里可见
+    pbody.add_condition(st_body.body, "CA-URI", "普通感冒", sev=0.55)
+    eng.phys_advance("demo", 24 * 4)
+    st_body = eng.load("demo")
+    conds = preport.render_conditions(st_body.body)
+    print("\n── 当前问题 ──")
+    print(conds if conds else "无")
+    print("\n── 血常规与炎症 ──")
+    print(preport.render_panel(st_body.body, "血常规"))
+    print(preport.render_panel(st_body.body, "炎症"))
+
+    print("\n" + "═" * 78)
+    print("注入块里的「身体」段（模型实际看到的样子）")
+    print("═" * 78)
+    print(narrative._physio_section(st_body))
+
 
 if __name__ == "__main__":
     main()

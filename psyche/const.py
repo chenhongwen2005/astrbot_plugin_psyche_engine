@@ -13,7 +13,7 @@ from typing import Dict, Tuple
 
 # 版本号必须与 metadata.yaml 的 version 保持一致。
 # tests/test_plugin_smoke.py 会校验两者相同——改了这里忘了改那边，测试会红。
-VERSION = "1.3.3"
+VERSION = "1.4.0"
 
 # ---------------------------------------------------------------------------
 # 一、类脑神经化学 / 内分泌 / 免疫指标
@@ -246,7 +246,7 @@ SYM: Dict[str, Tuple[str, str, str]] = {
     "so_medically_unexplained": ("医学无法解释", "so", "检查无异常但症状真实"),
     # ---------------- 物质 ----------------
     "su_craving": ("渴求", "su", "强烈的使用冲动"),
-    "su_tolerance": ("耐受", "su", "需要更大剂量才有同样效果"),
+    "su_tolerance": ("耐受", "su", "同样用量下效果下降"),
     "su_withdrawal": ("戒断", "su", "停用后出现躯体/情绪反应"),
     "su_control_loss": ("使用失控", "su", "用量、频率超过自己意愿"),
     "su_continue_harm": ("明知有害仍继续", "su", "损害健康/关系仍无法停止"),
@@ -255,8 +255,8 @@ SYM: Dict[str, Tuple[str, str, str]] = {
     "ic_gambling": ("赌博行为", "ic", "反复下注，追损"),
     "ic_gaming": ("游戏失控", "ic", "游戏占据生活，无法停止"),
     "ic_anger_outburst": ("间歇性暴怒", "ic", "突发攻击性爆发，事后后悔"),
-    "ic_compulsive_sexual": ("强迫性性行为", "ic", "反复无法控制的性行为"),
-    "ic_kleptomania": ("偷窃冲动", "ic", "无法抑制的偷窃冲动"),
+    "ic_compulsive_sexual": ("强迫性冲动行为", "ic", "反复难以控制的冲动行为"),
+    "ic_kleptomania": ("病理性拿取冲动", "ic", "反复难以抑制的拿取冲动"),
     # ---------------- 人格功能 ----------------
     "pd_identity_problems": ("身份认同问题", "pd", "自我感不稳定、目标摇摆"),
     "pd_self_direction_deficit": ("自我导向受损", "pd", "难以设定并坚持目标"),

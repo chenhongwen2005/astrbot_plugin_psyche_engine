@@ -115,5 +115,89 @@
     },
     "description": "量表自评超时（秒）",
     "hint": "SCL-90 有 90 条，输出较长，建议不低于 40 秒；超时则本次量表作废"
+  },
+  "physio_enabled": {
+    "description": "启用全生理指标模拟（九大系统、检验、疾病、药物）",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后只保留精神/神经系统，不推进身体、不注入身体段落"
+  },
+  "physio_hours_per_turn": {
+    "description": "每一轮对话推进多少虚拟小时",
+    "type": "int",
+    "default": 6,
+    "slider": {
+      "min": 1,
+      "max": 24,
+      "step": 1
+    },
+    "hint": "默认 6：四轮对话约等于一天。调大后生病与恢复都变快"
+  },
+  "physio_sex": {
+    "description": "角色生理性别（影响血红蛋白、肌酐、尿酸等参考区间）",
+    "type": "string",
+    "default": "m",
+    "options": [
+      "m",
+      "f"
+    ]
+  },
+  "physio_age": {
+    "description": "角色年龄（决定器官功能储备的起点）",
+    "type": "int",
+    "default": 30,
+    "slider": {
+      "min": 10,
+      "max": 95,
+      "step": 1
+    }
+  },
+  "physio_preset": {
+    "description": "身体底子预设",
+    "type": "string",
+    "default": "healthy",
+    "options": [
+      "healthy",
+      "athlete",
+      "sedentary",
+      "obese",
+      "smoker",
+      "drinker",
+      "insomniac",
+      "burnout",
+      "elderly",
+      "frail",
+      "chronically_ill"
+    ],
+    "hint": "只影响身体的初始状态，与精神状态预设互不干扰"
+  },
+  "physio_disease_onset": {
+    "description": "允许自发发病",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后只能通过 /心理 事件 或手工加病，适合纯对话场景"
+  },
+  "physio_onset_scale": {
+    "description": "发病概率缩放系数",
+    "type": "float",
+    "default": 0.3,
+    "slider": {
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.05
+    },
+    "hint": "1.0 等于按人群年发病率如实模拟；默认 0.3 让角色不至于长期卧病"
+  },
+  "physio_mortality": {
+    "description": "允许角色因疾病死亡",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭：只把危重状态标出来，不真的写死角色。开启后不可逆"
+  },
+  "physio_couple": {
+    "description": "身体状态影响精神状态（炎症/皮质醇/甲状腺素/睡眠压力）",
+    "type": "bool",
+    "default": true,
+    "hint": "单向耦合：身体改精神，精神不改身体。关闭后两套系统互不干扰"
   }
 }

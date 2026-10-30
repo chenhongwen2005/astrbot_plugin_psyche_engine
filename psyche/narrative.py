@@ -14,6 +14,11 @@ from typing import Any, Dict, List
 from .const import BIO, DOMAINS, NEURO, SEVERITY_LABELS, SYM, symptom_label
 from .diagnose import Diagnosis
 from . import pharm
+from .compat import physio as _P
+
+_pb = _P.body
+_pc = _P.const
+_pr = _P.report
 
 # ---------------------------------------------------------------------------
 # 各诊断族的"表演配方"
@@ -1007,6 +1012,10 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
 
     sections.append(sec("神经电与环路", _neuro_section(st)))
 
+    phys = _physio_section(st) if cfg.get("physio_enabled", True) else ""
+    if phys:
+        sections.append(sec("身体（九大系统此刻的真实状态）", phys))
+
     phen = _phenomenology(st) if p else _phenomenology_normal(st)
     sections.append(sec("此刻的主观体验（内部参考，不要逐条复述）", phen))
 
@@ -1031,6 +1040,44 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
         # 超长时优先砍现象学与生化的细节，保留诊断与指令
         text = _compact(st, dx, cfg, max_chars)
     return text
+
+
+def _physio_section(st) -> str:
+    """身体这一段：只写"此刻身上什么感觉"和"身上带着什么问题"。
+
+    刻意不列具体化验数值——数值是给 /心理 体检 看的，模型看到数字就会
+    开始念化验单，而不是让它变成一个正在发烧、正在尿频的人。
+    """
+    body = getattr(st, "body", None) or {}
+    if not body:
+        return ""
+    lines = ["- " + _pb.summary_line(body)]
+    feel = _pr.render_block_section(body, max_chars=240)
+    if feel:
+        lines.append("- " + feel)
+    conds = _pr.render_conditions(body)
+    if conds:
+        lines.append("- 身上带着的问题：" + "；".join(conds.splitlines()[:6]))
+    ev = _pc.events_text(st.meta.get("physio_events"), limit=5)
+    if ev:
+        lines.append("- 这两天经历：" + ev)
+    inj = (body.get("flags") or {}).get("injury")
+    if inj:
+        lines.append(f"- 还有伤没好：{inj}")
+    lines.append("- 这一段和「神经电与环路」同源：身体的难受必须落在语气、"
+                 "动作、体力和注意力上，不要写成旁白式描述，也不要报出检查数值。")
+    return "\n".join(lines)
+
+
+def _physio_min(st) -> str:
+    body = getattr(st, "body", None) or {}
+    if not body:
+        return ""
+    feel = _pr.render_block_section(body, max_chars=110)
+    conds = _pr.render_conditions(body)
+    name = conds.splitlines()[0].split("　")[0] if conds else ""
+    line = "\n## 身体\n- " + (name + "；" if name else "") + feel
+    return line
 
 
 def _scale_min(st) -> str:
@@ -1097,9 +1144,11 @@ def _compact(st, dx: Diagnosis, cfg: Dict[str, Any], max_chars: int) -> str:
     sc_full = ("\n## 量表锚点\n" + _scale_section(st)[:220]) if _scale_section(st) else ""
     med_full = ("\n## 在服药物\n" + _med_section(st)[:320]) if _med_section(st) else ""
 
-    # 顺序即优先级：诊断 > 量表锚点 > 表演要求 > 主动流露 > 药物 > 形态 > 指标
+    # 顺序即优先级：诊断 > 身体 > 量表锚点 > 表演要求 > 主动流露 > 药物 > 形态 > 指标
+    phys_fn = _physio_section(st) if cfg.get("physio_enabled", True) else ""
     candidates = [
         ("诊断", dx_full, "\n## 诊断\n" + _dx_section(dx, st)[:130]),
+        ("身体", ("\n## 身体\n" + phys_fn[:380]) if phys_fn else "", _physio_min(st)),
         ("量表锚点", sc_full, _scale_min(st)),
         ("表演要求", "\n## 表演要求\n" + _directives(perf, dx.severity, st, has_dx=bool(p)),
          _directives_min(perf, dx.severity, st, has_dx=bool(p))),
@@ -1197,6 +1246,20 @@ def render_card(st, dx: Diagnosis) -> str:
         sed = float(st.meta.get("sedation", 0.0))
         if sed >= 0.30:
             lines.append(f"镇静深度 {sed:.2f}（反应变慢、句子变短）")
+
+    body = getattr(st, "body", None) or {}
+    if body:
+        lines.append("")
+        lines.append("── 身体 ──")
+        try:
+            lines.append(_pb.summary_line(body))
+            lines.append("体征：" + _pr.render_vitals(body))
+            conds = _pr.render_conditions(body)
+            if conds:
+                lines.append("问题：" + "；".join(conds.splitlines()[:4]))
+            lines.append("感受：" + _pr.render_symptoms(body))
+        except Exception:
+            pass
     return "\n".join(lines)
 
 
@@ -1267,6 +1330,19 @@ def render_help() -> str:
         "/心理 快进 <轮数> 快速演化 N 轮（不产生对话）\n"
         "/心理 重置        回到当前预设的初始状态\n"
         "/心理 导出        导出状态 JSON\n"
+        "\n"
+        "【身体 · 体检与生活】\n"
+        "/心理 生理            一句话说清此刻身上什么情况\n"
+        "/心理 体检            完整体检报告（16 组、130+ 项）\n"
+        "/心理 体检 血常规     只出某一组（生命体征/肝功能/肾功能/甲状腺/炎症/凝血/血气…）\n"
+        "/心理 体检 异常       只看异常项\n"
+        "/心理 生活            作息、饮食、活动、习惯、环境\n"
+        "/心理 日子            身体自己的日志（什么时候吃了睡了出去）\n"
+        "/心理 服药 <药名> [剂量] 给身体服药（与精神侧 /心理 用药 分开，另有一套 200+ 种药）\n"
+        "/心理 找药 <关键词>   按药名或类别找药\n"
+        "/心理 停服 <药名>     停掉身体的药\n"
+        "/心理 推进 <小时>     只推进身体时间，不产生对话（24=一天）\n"
+        "/心理 设置 <维度> <值> 直接改一个生活维度（sleep_h/alcohol/smoking/pm25…）\n"
         "\n"
         "【量表自评 · 让角色自己填】\n"
         "/心理 量表              只做 SCL-90（90 条 / 10 因子）\n"

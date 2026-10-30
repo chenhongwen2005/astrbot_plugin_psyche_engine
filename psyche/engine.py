@@ -19,6 +19,13 @@ from .appraisal import (DOMAIN_KEYS, EXTRACT_PROMPT, appraise_fallback,
 from .diagnose import Diagnosis, diagnose, update_state
 from .dynamics import Dynamics
 from .model import MindState
+from .compat import physio as _P
+
+_Physiology = _P.Physiology
+_pbody = _P.body
+_pconst = _P.const
+_pdrugs = _P.drugs
+_preport = _P.report
 
 
 def _extract_json(raw: str) -> Optional[Dict[str, Any]]:
@@ -78,6 +85,7 @@ class Engine:
         self.cfg = cfg
         self.store = store
         self.dyn = Dynamics(cfg)
+        self.phys = _Physiology(cfg)
         self._cache: Dict[str, MindState] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
         self._last: Dict[str, tuple] = {}
@@ -98,6 +106,12 @@ class Engine:
             st = MindState.from_json(raw)
         else:
             st = presets.get(self.cfg.get("default_preset", "healthy"))
+        if not st.body:
+            st.body = _pbody.new_body(
+                sex=str(self.cfg.get("physio_sex", "m")),
+                age=float(self.cfg.get("physio_age", 30.0)),
+                preset=str(self.cfg.get("physio_preset", "healthy")),
+            )
         self._cache[key] = st
         return st
 
@@ -108,6 +122,12 @@ class Engine:
     def reset(self, key: str, preset: Optional[str] = None) -> MindState:
         st = presets.get(preset or self.cfg.get("default_preset", "healthy"))
         st.meta["preset"] = preset or self.cfg.get("default_preset", "healthy")
+        # 身体也要重置：换预设等于换一个人，不能让上一具身体的器官损伤留到新角色身上
+        st.body = _pbody.new_body(
+            sex=str(self.cfg.get("physio_sex", "m")),
+            age=float(self.cfg.get("physio_age", 30.0)),
+            preset=str(self.cfg.get("physio_preset", "healthy")),
+        )
         self.save(key, st)
         self.store.log(key, 0, "reset", {"preset": st.meta["preset"]})
         return st
@@ -134,6 +154,13 @@ class Engine:
             st.meta["last_user"] = (text or "")[:200]
             st.meta["appraisal"] = {k: v for k, v in (ap.get("dims") or {}).items()}
 
+            # 身体先走：这一轮之间过了几个小时，吃喝睡动、环境、生病都在这里发生
+            if self.cfg.get("physio_enabled", True):
+                phys_out = self.phys.step(st.body)
+                if self.cfg.get("physio_couple", True):
+                    self.phys.couple(st.body, st)
+                st.meta["physio_events"] = (phys_out.get("events") or [])[-8:]
+            # 精神侧再走：受身体影响后的神经化学是这一轮的新起点
             self.dyn.step(st, ap)
             dx = diagnose(st, self.cfg)
             update_state(st, dx)
@@ -149,6 +176,7 @@ class Engine:
                 "src": ap.get("source"),
                 "dx": dx.codes(),
                 "sev": dx.severity,
+                "body": _pbody.summary_line(st.body),
             })
             return TurnResult(state=st, dx=dx, block=block, appraisal=ap)
 
@@ -444,13 +472,130 @@ class Engine:
             "domains": {k: 0.0 for k in DOMAIN_KEYS},
             "keywords": [], "intensity": 0.0, "valence": 0.0, "crisis": False,
         }
-        for _ in range(max(1, min(500, int(n)))):
+        n = max(1, min(500, int(n)))
+        for _ in range(n):
+            self.phys.step(st.body)
+            self.phys.couple(st.body, st)
             self.dyn.step(st, neutral)
         dx = diagnose(st, self.cfg)
         update_state(st, dx)
         self.save(key, st)
         return (f"已快进 {n} 轮。主诊断：{dx.primary.zh if dx.primary else '未达阈值'}"
-                f"（{dx.severity:.0f}，慢性化 {dx.chronic:.0%}）")
+                f"（{dx.severity:.0f}，慢性化 {dx.chronic:.0%}）\n"
+                f"身体：{_pbody.summary_line(st.body)}")
+
+    # ------------------------------------------------------------------
+    # 生理侧
+    # ------------------------------------------------------------------
+    def phys_report(self, key: str, panel: str = "", only_abnormal: bool = False) -> str:
+        st = self.load(key)
+        panel = (panel or "").strip()
+        if panel:
+            # PANELS 的 key 是 LABS 的分组名（render_panel 按它取数），
+            # 显示名更友好，两个都认，否则用户输入「炎症指标」会查不到。
+            alias: Dict[str, str] = {}
+            for k, name in _pconst.PANELS:
+                alias[k] = k
+                alias[name] = k
+            alias["生命体征"] = "vitals"
+            alias["vitals"] = "vitals"
+            target = alias.get(panel)
+            if not target:
+                return ("未知检查项：" + panel + "。可用："
+                        + "、".join(n for _, n in _pconst.PANELS))
+            if target == "vitals":
+                return _preport.render_vitals(st.body)
+            text = _preport.render_panel(st.body, target)
+            if not text:
+                return f"「{target}」这项暂时没有数据。"
+            return text + "\n\n" + _preport.DISCLAIMER
+        return _preport.render_full(st.body, only_abnormal=only_abnormal)
+
+    def phys_life(self, key: str) -> str:
+        st = self.load(key)
+        return _preport.render_life(st.body)
+
+    def phys_log(self, key: str, limit: int = 12) -> str:
+        st = self.load(key)
+        return _preport.render_log(st.body, limit=limit)
+
+    def phys_med(self, key: str, name: str, dose: float = 1.0) -> str:
+        st = self.load(key)
+        drug = _pdrugs.resolve(name)
+        if not drug:
+            return f"药库里没有「{name}」。/心理 找药 <关键词> 可以按药名或类别找。"
+        msg = self.phys.add_med(st.body, drug, dose)
+        # 先走一天，让药物浓度爬坡，否则服药当刻看不到任何变化
+        self.phys.step(st.body, hours=24.0)
+        self.save(key, st)
+        self.store.log(key, int(st.meta.get("turn", 0)), "phys_med",
+                       {"drug": drug, "dose": dose})
+        sides = (_pdrugs.DRUGS.get(drug) or {}).get("side") or []
+        tail = f"\n常见不良反应：{'、'.join(sides[:5])}" if sides else ""
+        return msg + tail
+
+    def phys_stop(self, key: str, name: str) -> str:
+        st = self.load(key)
+        drug = _pdrugs.resolve(name) or name
+        msg = self.phys.remove_med(st.body, drug)
+        self.save(key, st)
+        return msg
+
+    def phys_find(self, key: str, kw: str) -> str:
+        kw = (kw or "").strip()
+        if not kw:
+            return "用法：/心理 找药 <关键词>（药名或类别）"
+        hit = [k for k, v in _pdrugs.DRUGS.items() if kw in k or kw in v["cls"]]
+        if not hit:
+            return f"没有匹配「{kw}」的药物。"
+        parts = [f"{k}（{_pdrugs.DRUGS[k]['cls']}）" for k in hit[:14]]
+        more = f"　等 {len(hit)} 种" if len(hit) > 14 else ""
+        return "、".join(parts) + more
+
+    def phys_advance(self, key: str, hours: float = 24.0) -> str:
+        st = self.load(key)
+        hours = max(0.0, min(24.0 * 365, float(hours)))
+        # engine.step 内部一次最多走 14 天（保证逐小时循环不至于太长），
+        # 这里分段调用，才能支持"推进一个月/一年"
+        events: List[str] = []
+        left = hours
+        while left > 1e-6:
+            chunk = min(24.0 * 14, left)
+            left -= chunk
+            out = self.phys.step(st.body, hours=chunk)
+            events.extend(out.get("events") or [])
+        self.phys.couple(st.body, st)
+        dx = diagnose(st, self.cfg)
+        update_state(st, dx)
+        self.save(key, st)
+        ev = _pconst.events_text(events, limit=6)
+        span = f"{hours / 24:.0f} 天" if hours >= 48 else f"{hours:.0f} 小时"
+        return (f"已推进 {span}（{_pbody.summary_line(st.body)}）。\n"
+                f"主诊断：{dx.primary.zh if dx.primary else '未达阈值'}"
+                f"（{dx.severity:.0f}）\n"
+                + (f"经过：{ev}" if ev else "这段时间没出什么事。"))
+
+    def phys_set(self, key: str, dim: str, value: str) -> str:
+        st = self.load(key)
+        dim = (dim or "").strip()
+        body = st.body
+        for gname, table in (("life", _pconst.LIFE), ("env", _pconst.ENV),
+                             ("vitals", _pconst.VITALS)):
+            if dim not in table:
+                continue
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                return f"「{dim}」要填一个数字。"
+            if v != v or abs(v) > 1e6:  # NaN / 离谱值直接拒绝
+                return f"「{dim}」的取值不合理。"
+            body.setdefault(gname, {})[dim] = v
+            self.save(key, st)
+            self.store.log(key, int(st.meta.get("turn", 0)), "phys_set",
+                           {"dim": dim, "value": v})
+            return f"已把「{table[dim][0]}」设为 {v:g}。"
+        avail = "、".join([f"{k}（{v[0]}）" for k, v in _pconst.LIFE.items()][:8])
+        return f"未知维度：{dim}。常用的有：{avail} 等等，共 {len(_pconst.LIFE)} 项。"
 
     # ------------------------------------------------------------------
     def timeline(self, key: str, limit: int = 15) -> str:

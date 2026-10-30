@@ -4,7 +4,7 @@
 - SSRI 需要 14~28 轮才起效（对应真实世界的 2~4 周），早期甚至可能加重焦虑；
 - 抗精神病药阻断 D2 后阳性症状下降，但阴性症状与锥体外系反应上升；
 - 苯二氮䓬类 1 轮见效，但 40 轮后耐受，停药反跳；
-- 锂盐起效慢、治疗窗窄，过量会出现震颤/意识模糊。
+- 锂盐起效慢、治疗窗窄，超治疗剂量会出现震颤/意识模糊。
 
 这样做是为了让"吃药"成为一个有代价的决策，而不是一键回血。
 """
@@ -87,7 +87,7 @@ DRUGS: Dict[str, Dict[str, Any]] = {
         "sym": {"ma_elevated_mood": -0.12, "ma_goal_activity": -0.10, "ma_irritability": -0.08,
                 "md_suicidal_ideation": -0.10},
         "latency": 12.0, "sedation": 0.2,
-        "note": "治疗窗窄；中毒时手抖、呕吐、意识模糊",
+        "note": "治疗窗窄；超治疗剂量时手抖、呕吐、意识模糊",
         "toxicity": {"cg_disorientation": +0.15, "ax_somatic": +0.10},
     },
     "丙戊酸": {
@@ -363,7 +363,7 @@ def active_effects(meds: List[Dict[str, Any]], turn: int) -> Dict[str, Any]:
         for k, v in (spec.get("sym") or {}).items():
             sym[k] = sym.get(k, 0.0) + v * r * dose
 
-        # 锂盐中毒（剂量 > 1.4 视为过量）
+        # 超治疗剂量的毒性反应（不对外描述具体阈值）
         if spec.get("toxicity") and dose > 1.4:
             for k, v in spec["toxicity"].items():
                 sym[k] = sym.get(k, 0.0) + v * dose * r
