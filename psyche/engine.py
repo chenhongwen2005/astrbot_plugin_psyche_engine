@@ -114,7 +114,8 @@ class Engine:
             )
         # 新建或旧存档的身体可能一次都没 step 过，labs/vitals 为空。
         # 不补算的话，第一次 /心理 体检 会出现「体重 0.0kg」「体征未记录」。
-        if not (st.body.get("labs") and st.body.get("vitals")):
+        # 判据取 WEIGHT 而不是 dict 非空：早期存档写下过 WEIGHT=0.0 的空表。
+        if not (st.body.get("labs") and (st.body.get("vitals") or {}).get("WEIGHT")):
             self.phys.refresh(st.body)
         self._cache[key] = st
         return st
