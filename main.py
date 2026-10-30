@@ -1,4 +1,4 @@
-"""AstrBot 插件入口：精神状态引擎 / 类脑生化模拟。
+"""AstrBot 插件入口：身心状态引擎（类脑 + 全身生理）。
 
 核心机制（详见 psyche/ 各模块）：
 1. 每条用户消息先做认知评估（默认交给模型抽取关键词与 12 维刺激量）；
@@ -76,7 +76,7 @@ class PsycheEnginePlugin(Star):
         self.store = Store(os.path.join(base, "psyche.db"))
         self.engine = Engine(self.config, self.store)
         self._recent: Dict[str, tuple] = {}
-        logger.info(f"[psyche] 精神状态引擎 v{VERSION} 已加载，数据目录 {base}")
+        logger.info(f"[psyche] 身心状态引擎 v{VERSION} 已加载，数据目录 {base}")
 
     # ------------------------------------------------------------------
     # 会话键
@@ -172,9 +172,9 @@ class PsycheEnginePlugin(Star):
             parts = parts[1:]
         return (parts[0] if parts else ""), parts[1:]
 
-    @filter.command("心理", alias={"psyche", "精神状态", "精神"})
+    @filter.command("心理", alias={"psyche", "精神状态", "精神", "身心", "生命"})
     async def psyche_cmd(self, event: AstrMessageEvent):
-        """精神状态引擎：查看状态、诊断、时间线，切换预设、用药、注入事件。"""
+        """身心状态引擎：查看状态、诊断、时间线，切换预设、用药、注入事件、体检。"""
         if not self.config.get("commands_enabled", True):
             yield event.plain_result("指令已关闭。")
             return

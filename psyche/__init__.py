@@ -1,4 +1,4 @@
-"""astrbot_plugin_psyche_engine · 精神状态引擎
+"""astrbot_plugin_psyche_engine · 身心状态引擎
 
 纯 Python 实现，不依赖 astrbot，可独立测试。
 """

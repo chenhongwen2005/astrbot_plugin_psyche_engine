@@ -1014,7 +1014,7 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
 
     phys = _physio_section(st) if cfg.get("physio_enabled", True) else ""
     if phys:
-        sections.append(sec("身体（九大系统此刻的真实状态）", phys))
+        sections.append(sec("身体（此刻的全身状态）", phys))
 
     phen = _phenomenology(st) if p else _phenomenology_normal(st)
     sections.append(sec("此刻的主观体验（内部参考，不要逐条复述）", phen))
@@ -1323,7 +1323,7 @@ def render_med_report(st) -> str:
 
 def render_help() -> str:
     return (
-        "【精神状态引擎 · 指令】\n"
+        "【身心状态引擎 · 指令】\n"
         "/心理            查看当前状态卡\n"
         "/心理 诊断        只看 ICD-11 诊断与鉴别\n"
         "/心理 生化        生化与电生理明细\n"
