@@ -76,6 +76,9 @@ def status_line(st, dx, tag: str = "") -> str:
         flags.append("⚠危机")
     if al >= 0.22:
         flags.append("负荷过阈")
+    sides = st.meta.get("side_effects") or []
+    if sides:
+        flags.append("副[" + " ".join(f"{s['zh']}{s['intensity']:.1f}" for s in sides[:2]) + "]")
     tail = ("  " + " ".join(flags)) if flags else ""
     return (f"{tag}#{turn:<3} {head:<28} 症状和 {sym:>5.2f}  "
             f"负荷 {al:.3f} 慢化 {ch:.3f}  触发[{_top_dims(st)}]{tail}")
@@ -91,6 +94,9 @@ def print_help() -> None:
   /重置 [预设]        回到某预设，默认 healthy
   /预设              列出全部 38 个预设
   /说 <预设>          同上，但名字更好记
+  /用药 <药名> [剂量]  给药，副作用 1~2 轮就出现
+  /副作用            在服药物与副作用明细
+  /停药 <药名>        停药
   /历史              最近几轮输入
   /安静  /啰嗦        切换每轮输出详略
   /帮助  /退出
@@ -254,6 +260,22 @@ async def main_async(args) -> None:
                 print("  " + status_line(st, dx, tag="起始 "))
             elif cmd in ("预设", "presets", "list"):
                 list_presets()
+            elif cmd in ("用药", "med"):
+                parts = rest.split()
+                if not parts:
+                    from psyche import pharm
+
+                    print("  可用药物：" + "、".join(pharm.DRUGS))
+                    continue
+                dose = float(parts[1]) if len(parts) > 1 and parts[1].replace(".", "", 1).isdigit() else 1.0
+                print("  " + sess.eng.add_med(sess.key, parts[0], dose).replace("\n", "\n  "))
+            elif cmd in ("副作用", "side"):
+                print(narrative.render_med_report(sess.eng.load(sess.key)))
+            elif cmd in ("停药", "off"):
+                if not rest:
+                    print("  用法：/停药 <药名>")
+                    continue
+                print("  " + sess.eng.remove_med(sess.key, rest))
             elif cmd in ("说", "set"):
                 if rest not in presets.PRESETS:
                     print(f"  没有预设 {rest}")
