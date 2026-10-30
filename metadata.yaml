@@ -18,8 +18,8 @@ desc: >-
   数值均为面向叙事的简化模型，不构成任何医学意见，不可用于自我诊断或诊断他人。请仅在
   虚构角色、明确知情的场景中使用。
 version: 1.2.0
-author: WorkBuddy
-repo: https://github.com/YOUR_GITHUB_NAME/astrbot_plugin_psyche_engine
+author: 亓官浮尘
+repo: https://github.com/chenhongwen2005/astrbot_plugin_psyche_engine
 astrbot_version: ">=4.17.0"
 tags:
   - 角色扮演
