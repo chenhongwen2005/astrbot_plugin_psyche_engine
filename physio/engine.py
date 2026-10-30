@@ -513,6 +513,14 @@ class Physiology:
     # ==================================================================
     # 4. 指标层
     # ==================================================================
+    def refresh(self, body: Dict[str, Any]) -> None:
+        """只重算指标，不推进时间。
+
+        新建或读取的身体还没有任何一次 step，labs/vitals 是空的；此时查体检会
+        得到体重 0、体征"未记录"。凡是要读指标的地方先调这里补算一次。
+        """
+        self._refresh(B.ensure_body(body))
+
     def _refresh(self, body: Dict[str, Any]) -> None:
         labs, vitals, derived = L.compute(body)
         body["labs"] = {k: round(v, 3) for k, v in labs.items()}

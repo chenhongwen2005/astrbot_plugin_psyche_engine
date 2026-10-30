@@ -1070,9 +1070,17 @@ def _physio_section(st) -> str:
 
 
 def render_body_section(st) -> str:
-    """/心理 生理：与注入块里同一段文字，方便对照"模型看到的"和"实际的"。"""
+    """/心理 生理：与注入块里同一段文字，去掉给模型的表演指令。
+
+    末行是写给模型的约束（"落在语气、动作、体力和注意力上"），人看不该看到，
+    否则每次查状态都会多出一句无关的元指令。
+    """
     text = _physio_section(st)
-    return text or "身体模块未启用（physio_enabled=false）。"
+    if not text:
+        return "身体模块未启用（physio_enabled=false）。"
+    keep = [ln for ln in text.splitlines()
+            if "这一段和「神经电与环路」同源" not in ln]
+    return "\n".join(keep)
 
 
 def _physio_min(st) -> str:

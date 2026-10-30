@@ -406,6 +406,55 @@ def test_age_declines() -> None:
     ok("年龄衰退方向正确（eGFR " + " → ".join(f"{r[1]:.0f}" for r in rows) + "）")
 
 
+def test_fresh_body_reports() -> None:
+    """刚建好的身体一次都没 step 过，体检也必须出数。
+
+    这里卡的是真实故障：新会话里第一句就发 /心理 体检，报告出现
+    「体重 0.0kg」「生命体征：未记录」——因为 labs/vitals 只在推进之后才填。
+    """
+    from psyche import narrative
+    from psyche.engine import Engine
+
+    class Store:
+        def load(self, k):
+            return None
+
+        def save(self, *a, **k):
+            pass
+
+        def log(self, *a, **k):
+            pass
+
+        def events(self, k, limit=15):
+            return []
+
+    cfg = {"default_preset": "healthy", "physio_sex": "f", "physio_age": 18,
+           "physio_preset": "healthy"}
+    eng = Engine(cfg, Store())
+    st = eng.load("fresh")          # 不经过任何一轮对话
+
+    if len(st.body.get("labs") or {}) < len(C.LABS):
+        fail(f"初生身体只算了 {len(st.body.get('labs') or {})}/{len(C.LABS)} 项检验")
+    if not st.body.get("vitals"):
+        fail("初生身体没有生命体征")
+
+    report = eng.phys_report("fresh")
+    for bad in ("体重 0.0kg", "BMI 0.0", "未记录"):
+        if bad in report:
+            fail(f"首次体检出现「{bad}」")
+    if "参考" not in report:
+        fail("首次体检没有参考区间")
+
+    # 用户版不加模型的表演指令
+    text = narrative.render_body_section(st)
+    if "神经电与环路" in text:
+        fail("/心理 生理 把给模型的指令也发给了用户")
+    if "第 1 天" not in text:
+        fail("/心理 生理 缺少时间与人物行")
+
+    ok(f"首次体检即出数（{len(st.body['labs'])} 项检验，{len(report)} 字）")
+
+
 def main() -> None:
     test_tables()
     test_labs_self_consistent()
@@ -420,6 +469,7 @@ def main() -> None:
     test_old_save()
     test_couple_scale()
     test_reports()
+    test_fresh_body_reports()
     test_block_keeps_physio()
     test_no_banned_terms()
     test_disclaimer_everywhere()

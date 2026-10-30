@@ -112,6 +112,10 @@ class Engine:
                 age=float(self.cfg.get("physio_age", 30.0)),
                 preset=str(self.cfg.get("physio_preset", "healthy")),
             )
+        # 新建或旧存档的身体可能一次都没 step 过，labs/vitals 为空。
+        # 不补算的话，第一次 /心理 体检 会出现「体重 0.0kg」「体征未记录」。
+        if not (st.body.get("labs") and st.body.get("vitals")):
+            self.phys.refresh(st.body)
         self._cache[key] = st
         return st
 
@@ -128,6 +132,7 @@ class Engine:
             age=float(self.cfg.get("physio_age", 30.0)),
             preset=str(self.cfg.get("physio_preset", "healthy")),
         )
+        self.phys.refresh(st.body)
         self.save(key, st)
         self.store.log(key, 0, "reset", {"preset": st.meta["preset"]})
         return st

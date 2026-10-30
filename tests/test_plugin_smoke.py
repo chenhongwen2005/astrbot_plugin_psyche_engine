@@ -153,6 +153,18 @@ def test_physio_commands() -> None:
             out.append(r[1] if isinstance(r, tuple) else str(r))
         return out
 
+    # 全新会话的第一句就是体检：此时身体一次都没推进过，化验单不能是空的
+    async def _fresh(msg: str) -> list[str]:
+        e = ev_mod.AstrMessageEvent(msg, umo="test:FriendMessage:physfresh")
+        out = []
+        async for r in plugin.psyche_cmd(e):
+            out.append(r[1] if isinstance(r, tuple) else str(r))
+        return out
+
+    first = "".join(asyncio.run(_fresh("/心理 体检")))
+    for bad in ("体重 0.0kg", "BMI 0.0", "未记录"):
+        assert bad not in first, f"首句体检出现「{bad}」"
+
     # 先让身体过几天，才有东西可看
     asyncio.run(_collect("/心理 推进 72"))
 
