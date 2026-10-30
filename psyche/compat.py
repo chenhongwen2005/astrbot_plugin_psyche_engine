@@ -16,7 +16,11 @@ from __future__ import annotations
 
 try:  # 作为包的一部分（AstrBot 运行时）
     from .. import physio as physio  # type: ignore
+    from ..physio import body as physio_body  # type: ignore
+    from ..physio import report as physio_report  # type: ignore
 except ImportError:  # 作为顶层包（测试脚本 / 独立运行）
     import physio as physio  # type: ignore
+    from physio import body as physio_body  # type: ignore
+    from physio import report as physio_report  # type: ignore
 
-__all__ = ["physio"]
+__all__ = ["physio", "physio_body", "physio_report"]

@@ -455,6 +455,57 @@ def test_fresh_body_reports() -> None:
     ok(f"首次体检即出数（{len(st.body['labs'])} 项检验，{len(report)} 字）")
 
 
+def test_pagination() -> None:
+    """长报告分页：每页可独立看懂，内容不丢不重。
+
+    卡的是真实故障：按行硬切把一页断在小节中间，收到的最后一条以
+    「血管紧张素转换酶 32.0 U/L」开头——没有表头、没有上下文，
+    看起来就像数据丢了。
+    """
+    import re
+
+    phys = Physiology({"physio_disease_onset": False})
+    b = B.new_body(sex="m", age=58, preset="chronically_ill")
+    B.add_condition(b, "EN-T2DM", "2 型糖尿病", sev=0.55)
+    phys.step(b, 18.0)
+    text = R.render_full(b)
+    pages = R.split_pages(text)
+
+    if len(pages) < 2:
+        fail("七千字的体检没有分页")
+    for i, pg in enumerate(pages, 1):
+        if len(pg) > 1400 or len(pg.encode("utf-8")) > 3800:
+            fail(f"第 {i} 页超限（{len(pg)} 字 / {len(pg.encode())} 字节）")
+        lines = [ln for ln in pg.splitlines() if ln.strip()]
+        if not lines or not lines[0].startswith("（"):
+            fail(f"第 {i} 页缺少序号")
+        if len(lines) < 2 or not lines[1].startswith("──"):
+            fail(f"第 {i} 页没有重复抬头")
+        first = next((ln for ln in lines if ln.startswith("【")), "")
+        if not first:
+            fail(f"第 {i} 页没有任何小节标题")
+        if i > 1 and "（续）" in first:
+            continue
+
+    # 去掉页序号与重复抬头后应与原文逐行一致
+    flat = re.sub(r"^（\d+/\d+）\n──[^\n]*\n", "", "\n\n".join(pages), flags=re.M)
+    flat = re.sub(r"^【[^】]*（续）】\n", "", flat, flags=re.M)
+    src = [ln for ln in text.splitlines()[1:] if ln.strip()]   # 抬头单独比
+    got = [ln for ln in flat.splitlines() if ln.strip()]
+    if src != got:
+        fail(f"分页后内容有丢失或错位（原 {len(src)} 行，还原 {len(got)} 行）")
+    if any(ln.startswith("（续）") for ln in sum((p.splitlines() for p in pages), [])):
+        fail("分页产生了空壳续页")
+
+    # 简短报告不该被拆成多条
+    short = R.render_panel(b, "血常规")
+    if len(R.split_pages(short)) != 1:
+        fail("单项检查被错误地分页")
+
+    ok(f"分页正确（{len(text)} 字 → {len(pages)} 条，单条 ≤"
+       f"{max(len(p) for p in pages)} 字，无裸数据开头）")
+
+
 def main() -> None:
     test_tables()
     test_labs_self_consistent()
@@ -469,6 +520,7 @@ def main() -> None:
     test_old_save()
     test_couple_scale()
     test_reports()
+    test_pagination()
     test_fresh_body_reports()
     test_block_keeps_physio()
     test_no_banned_terms()

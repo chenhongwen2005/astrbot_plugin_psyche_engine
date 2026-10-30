@@ -22,6 +22,7 @@ from astrbot.api.star import Context, Star
 
 from .psyche import Engine, MindState, VERSION, diagnose, narrative, presets
 from .psyche.compat import physio as _physio
+from .psyche.compat import physio_report as _preport
 from .psyche.store import Store
 
 try:  # 不同版本路径略有差异，取不到就退回插件目录
@@ -32,31 +33,6 @@ try:  # 不同版本路径略有差异，取不到就退回插件目录
 except Exception:  # pragma: no cover
     def _data_root() -> str:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-
-
-def _split_msg(text: str, size: int = 1600) -> List[str]:
-    """把长报告切成若干条消息。
-
-    体检报告有十几组、七千多字，一次发出会被平台截断（QQ 单条约 4KB），
-    截断比不给更糟——用户看到半张化验单会以为后面本来就没了。
-    按行切、只在行边界断开，保证每一行都完整。
-    """
-    text = text or ""
-    if len(text) <= size:
-        return [text] if text else []
-    out: List[str] = []
-    cur: List[str] = []
-    used = 0
-    for line in text.splitlines(keepends=True):
-        if used + len(line) > size and cur:
-            out.append("".join(cur))
-            cur, used = [], 0
-        cur.append(line)
-        used += len(line)
-    if cur:
-        out.append("".join(cur))
-    total = len(out)
-    return [f"（{i + 1}/{total}）\n{p}" if total > 1 else p for i, p in enumerate(out)]
 
 
 AUTHORITY_CLAUSE = (
@@ -286,7 +262,7 @@ class PsycheEnginePlugin(Star):
                 panel = args[0] if args else ""
                 only_ab = panel in ("异常", "异常项")
                 text = self.engine.phys_report(key, "" if only_ab else panel, only_ab)
-                for part in _split_msg(text):
+                for part in _preport.split_pages(text):
                     yield event.plain_result(part)
                 return
 
