@@ -67,21 +67,21 @@ D("CA-URI", "普通感冒", "resp", base=0.020,
   labs={"WBC": (1.2, "add"), "LYMPH_p": (8.0, "add"), "CRP": (6.0, "add")},
   sx=["咽部发干发痒", "清水样鼻涕", "打喷嚏", "轻微畏寒"], acute=True, dur=150.0,
   fever=0.25, treat=["对乙酰氨基酚", "氯苯那敏", "伪麻黄碱"])
-D("CA-FLU", "流行性感冒", "resp", base=0.004,
+D("CA-FLU", "流行性感冒", "resp", base=0.0012,
   risk={"pathogen": 1.2, "sleep_debt": 0.6, "stress": 0.5, "age": 0.4},
   org={"airway": 0.18, "lungs": 0.08},
   labs={"WBC": (-0.8, "add"), "LYMPH_p": (6.0, "add"), "CRP": (18.0, "add"),
         "AST": (12.0, "add"), "CK": (60.0, "add")},
   sx=["突然发烧", "全身肌肉酸痛", "头痛", "干咳", "眼眶后胀痛"], acute=True, dur=190.0,
   fever=0.85, pain=0.45, inflam=0.35, treat=["奥司他韦", "对乙酰氨基酚"])
-D("CA-COVID", "新型冠状病毒感染", "resp", base=0.003,
+D("CA-COVID", "新型冠状病毒感染", "resp", base=0.0018,
   risk={"pathogen": 1.0, "age": 0.8, "bmi": 0.5},
   org={"lungs": 0.22, "airway": 0.12, "coag": 0.15, "heart": 0.06},
   labs={"LYMPH_p": (-8.0, "add"), "CRP": (22.0, "add"), "DD": (0.6, "add"),
         "LDH": (60.0, "add"), "SpO2": (-3.0, "add")},
   sx=["咽痛", "干咳", "嗅觉变淡", "活动后气短", "乏力"], acute=True, dur=280.0,
   fever=0.6, inflam=0.45, treat=["对乙酰氨基酚", "地塞米松"])
-D("CA-PNEU", "社区获得性肺炎", "resp", base=0.0006,
+D("CA-PNEU", "社区获得性肺炎", "resp", base=0.0002,
   risk={"pathogen": 0.8, "smoking": 1.2, "age": 0.9, "alcohol": 0.6, "hygiene": 0.4},
   org={"lungs": 0.35, "heart": 0.08},
   labs={"WBC": (6.0, "add"), "NEUT_p": (14.0, "add"), "CRP": (90.0, "add"),
@@ -89,7 +89,7 @@ D("CA-PNEU", "社区获得性肺炎", "resp", base=0.0006,
   sx=["高热寒战", "咳黄痰", "胸膜性胸痛", "呼吸费力"], acute=True, dur=340.0,
   fever=0.9, pain=0.4, inflam=0.75, mortal=0.004,
   treat=["阿莫西林", "左氧氟沙星", "头孢曲松", "对乙酰氨基酚"])
-D("CA-BRONCH", "急性支气管炎", "resp", base=0.002,
+D("CA-BRONCH", "急性支气管炎", "resp", base=0.00015,
   risk={"smoking": 1.5, "pathogen": 0.6, "pm25": 0.6},
   org={"airway": 0.22},
   labs={"CRP": (12.0, "add"), "WBC": (1.0, "add")},
@@ -115,30 +115,30 @@ D("CA-HIV", "HIV 感染", "rheum", base=0.00001,
         "IgG": (4.0, "add")},
   sx=["反复低热", "颈部淋巴结肿大", "夜间盗汗", "口腔白斑"], dur=None,
   fever=0.25, inflam=0.2, treat=["替诺福韦", "拉米夫定", "多替拉韦"])
-D("CA-UTI", "急性膀胱炎", "renal", base=0.004,
+D("CA-UTI", "急性膀胱炎", "renal", base=0.0003,
   risk={"water": 0.6, "hygiene": 0.5, "sex": 0.3},
   org={"bladder": 0.18, "kidney": 0.03},
   labs={"U_WBC": (18.0, "add"), "U_BLD": (0.3, "add"), "CRP": (8.0, "add")},
   sx=["尿频", "尿急", "排尿末灼痛", "下腹坠胀"], acute=True, dur=120.0,
   fever=0.2, pain=0.3, treat=["左氧氟沙星", "呋喃妥因", "磷霉素"])
-D("CA-PYELO", "急性肾盂肾炎", "renal", base=0.0007,
+D("CA-PYELO", "急性肾盂肾炎", "renal", base=4e-05,
   risk={"water": 0.6, "sex": 0.5, "hygiene": 0.4},
   org={"kidney": 0.16, "bladder": 0.15},
   labs={"WBC": (5.0, "add"), "NEUT_p": (10.0, "add"), "CRP": (70.0, "add"),
         "U_WBC": (40.0, "add"), "CREA": (18.0, "add")},
   sx=["高热", "腰痛叩击痛", "尿频尿痛", "恶心"], acute=True, dur=260.0,
   fever=0.9, pain=0.55, inflam=0.7, treat=["头孢曲松", "左氧氟沙星"])
-D("CA-GASTRO", "急性胃肠炎", "gi", base=0.006,
+D("CA-GASTRO", "急性胃肠炎", "gi", base=0.001,
   risk={"hygiene": 0.8, "pathogen": 0.5}, org={"gut": 0.15, "kidney_tubule": 0.05},
   labs={"K": (-0.4, "add"), "Na": (-3.0, "add"), "BUN": (1.8, "add")},
   sx=["水样腹泻", "脐周绞痛", "恶心呕吐"], acute=True, dur=90.0, fever=0.35,
   pain=0.35, treat=["蒙脱石散", "口服补液盐", "洛哌丁胺"])
-D("CA-APPEND", "急性阑尾炎", "gi", base=0.00035, org={"gut": 0.10},
+D("CA-APPEND", "急性阑尾炎", "gi", base=2e-05, org={"gut": 0.10},
   labs={"WBC": (6.0, "add"), "NEUT_p": (12.0, "add"), "CRP": (45.0, "add")},
   sx=["转移性右下腹痛", "麦氏点压痛", "恶心", "低热"], acute=True, dur=200.0,
   fever=0.55, pain=0.8, inflam=0.6, mortal=0.001,
   treat=["头孢曲松", "甲硝唑"])
-D("CA-CHOLE", "急性胆囊炎", "gi", base=0.0004,
+D("CA-CHOLE", "急性胆囊炎", "gi", base=7e-05,
   risk={"bmi": 0.8, "sex": 0.4, "age": 0.5}, org={"liver": 0.12},
   labs={"WBC": (5.0, "add"), "CRP": (60.0, "add"), "ALP": (60.0, "add"),
         "GGT": (70.0, "add"), "TBIL": (12.0, "add")},
@@ -170,32 +170,32 @@ D("CA-ENDO", "感染性心内膜炎", "cardio", base=0.00004,
         "HGB": (-15.0, "add"), "U_BLD": (0.25, "add")},
   sx=["持续低热", "新出现的心脏杂音", "指甲下线状出血", "乏力"], dur=600.0,
   fever=0.6, inflam=0.6, mortal=0.01, treat=["万古霉素", "庆大霉素"], rare=True)
-D("CA-CELLUL", "丹毒与蜂窝织炎", "derm", base=0.0007, org={"skin": 0.25},
+D("CA-CELLUL", "丹毒与蜂窝织炎", "derm", base=5e-05, org={"skin": 0.25},
   labs={"WBC": (3.5, "add"), "CRP": (45.0, "add")},
   sx=["局部红肿热痛", "边界清楚", "发热"], acute=True, dur=200.0, fever=0.5,
   pain=0.5, inflam=0.5, treat=["头孢氨苄", "青霉素"])
-D("CA-SINUS", "急性鼻窦炎", "ent", base=0.003, risk={"allergen": 0.6, "pathogen": 0.5},
+D("CA-SINUS", "急性鼻窦炎", "ent", base=0.0003, risk={"allergen": 0.6, "pathogen": 0.5},
   org={"airway": 0.06}, labs={"CRP": (8.0, "add")},
   sx=["面部压迫感", "黄绿色脓涕", "嗅觉下降"], acute=True, dur=240.0, fever=0.25, pain=0.35,
   treat=["阿莫西林", "布地奈德鼻喷"])
-D("CA-OTITIS", "急性中耳炎", "ent", base=0.002, risk={"pathogen": 0.6},
+D("CA-OTITIS", "急性中耳炎", "ent", base=8e-05, risk={"pathogen": 0.6},
   org={"ear": 0.12}, sx=["耳深部胀痛", "听力发闷", "牵拉耳廓痛"], acute=True,
   dur=180.0, fever=0.35, pain=0.5, treat=["阿莫西林"])
-D("CA-PHARYN", "链球菌性咽炎", "ent", base=0.002, risk={"pathogen": 0.7},
+D("CA-PHARYN", "链球菌性咽炎", "ent", base=0.0002, risk={"pathogen": 0.7},
   org={}, labs={"WBC": (2.5, "add"), "ASO": (150.0, "add")},
   sx=["咽痛剧烈", "扁桃体脓点", "高热"], acute=True, dur=150.0, fever=0.75, pain=0.5,
   treat=["青霉素", "对乙酰氨基酚"])
-D("CA-MONO", "传染性单核细胞增多症", "heme", base=0.0004,
+D("CA-MONO", "传染性单核细胞增多症", "heme", base=5e-05,
   risk={"pathogen": 0.6}, org={"spleen": 0.18, "liver": 0.12},
   labs={"LYMPH_p": (22.0, "add"), "ALT": (70.0, "add"), "AST": (50.0, "add"),
         "PLT": (-40.0, "add")},
   sx=["持续高热", "咽痛明显", "颈部淋巴结肿大", "极度乏力", "左 upper 腹不适"],
   acute=True, dur=800.0, fever=0.7, inflam=0.35, treat=["对乙酰氨基酚"])
-D("CA-HZV", "带状疱疹", "derm", base=0.0005,
+D("CA-HZV", "带状疱疹", "derm", base=8e-05,
   risk={"age": 0.9, "stress": 0.8, "immune": 0.7}, org={"nerve": 0.15, "skin": 0.15},
   labs={}, sx=["单侧沿神经分布的灼痛", "成簇水疱", "触痛明显"], acute=True,
   dur=500.0, pain=0.8, treat=["伐昔洛韦", "加巴喷丁"])
-D("CA-VZV", "水痘", "derm", base=0.0003, risk={"pathogen": 0.7},
+D("CA-VZV", "水痘", "derm", base=2e-05, risk={"pathogen": 0.7},
   org={"skin": 0.20}, sx=["全身瘙痒性皮疹", "低热"], acute=True, dur=300.0,
   fever=0.4, treat=["炉甘石洗剂", "阿昔洛韦"])
 D("CA-MEASLES", "麻疹", "derm", base=0.00008, risk={"pathogen": 0.8},
@@ -239,7 +239,7 @@ D("CA-LEPTO", "钩端螺旋体病", "rheum", base=0.000008, risk={"pathogen": 0.
         "TBIL": (25.0, "add")},
   sx=["腓肠肌压痛", "结膜充血", "发热", "少尿"], acute=True, dur=400.0,
   fever=0.8, pain=0.6, treat=["青霉素"], rare=True)
-D("CA-INFECT-ENDO", "感染性腹泻（细菌性）", "gi", base=0.0016, risk={"hygiene": 0.7},
+D("CA-INFECT-ENDO", "感染性腹泻（细菌性）", "gi", base=0.0002, risk={"hygiene": 0.7},
   org={"gut": 0.18}, labs={"WBC": (2.0, "add"), "K": (-0.3, "add")},
   sx=["黏液脓血便", "里急后重", "发热"], acute=True, dur=130.0, fever=0.5, pain=0.4,
   treat=["左氧氟沙星", "口服补液盐"])
@@ -261,7 +261,7 @@ D("CA-OSTEO", "急性骨髓炎", "msk", base=0.00003, risk={"pathogen": 0.6},
   labs={"WBC": (4.0, "add"), "CRP": (70.0, "add"), "ESR": (40.0, "add")},
   sx=["局部深部骨痛", "压痛", "发热"], dur=600.0, fever=0.6, pain=0.7,
   treat=["万古霉素"], rare=True)
-D("CA-PROSTAT", "急性前列腺炎", "repro", base=0.0003, risk={"water": 0.5},
+D("CA-PROSTAT", "急性前列腺炎", "repro", base=1e-05, risk={"water": 0.5},
   org={"bladder": 0.15}, labs={"WBC": (3.0, "add"), "CRP": (40.0, "add")},
   sx=["会阴胀痛", "排尿灼痛", "发热"], acute=True, dur=280.0, fever=0.6, pain=0.6,
   treat=["左氧氟沙星"], sex="m")
@@ -455,7 +455,7 @@ D("RS-SILICOSIS", "矽肺", "resp", base=0.00001, risk={"pm25": 1.8},
 D("RS-HYPERSENS", "过敏性肺炎", "resp", base=0.00002,
   risk={"allergen": 1.5}, org={"lungs": 0.30},
   sx=["接触后发热咳嗽", "气短", "乏力"], dur=None, rare=True, treat=["泼尼松"])
-D("RS-LARYNG", "急性喉炎", "ent", base=0.0008, risk={"pathogen": 0.6},
+D("RS-LARYNG", "急性喉炎", "ent", base=0.00015, risk={"pathogen": 0.6},
   org={"airway": 0.15}, sx=["声音嘶哑", "犬吠样咳", "吸气性喉鸣"], acute=True,
   dur=120.0, fever=0.3, treat=["布地奈德雾化"])
 
@@ -544,14 +544,14 @@ D("GI-OBSTRUCT", "肠梗阻", "gi", base=0.00006,
 D("GI-DIVERTIC", "结肠憩室", "gi", base=0.0008,
   risk={"age": 0.9, "fiber": 0.8}, org={"gut": 0.08},
   sx=["左下腹隐痛", "排便习惯改变"], dur=None, pain=0.25)
-D("GI-DIVERTICULITIS", "憩室炎", "gi", base=0.0002,
+D("GI-DIVERTICULITIS", "憩室炎", "gi", base=2e-05,
   risk={"age": 0.9, "fiber": 0.7}, org={"gut": 0.22},
   labs={"WBC": (4.0, "add"), "CRP": (60.0, "add")},
   sx=["左下腹持续痛", "发热", "腹泻或便秘"], acute=True, dur=300.0, fever=0.6,
   pain=0.7, treat=["头孢曲松", "甲硝唑"])
 D("GI-HERNIA", "腹股沟疝", "gi", base=0.0003, risk={"bmi": 0.6},
   org={"gut": 0.05}, sx=["站立时腹股沟包块", "坠胀感"], dur=None, pain=0.3)
-D("GI-APPEND-CHRONIC", "慢性阑尾炎", "gi", base=0.0002,
+D("GI-APPEND-CHRONIC", "慢性阑尾炎", "gi", base=2e-05,
   org={"gut": 0.04}, sx=["右下腹间断隐痛"], dur=None, pain=0.2)
 D("GI-FISSURE", "肛裂", "gi", base=0.0008, risk={"fiber": 0.9},
   org={"gut": 0.03}, sx=["排便时刀割样痛", "便纸带血"], dur=None, pain=0.5)
@@ -591,7 +591,7 @@ D("GI-PSC", "原发性硬化性胆管炎", "gi", base=0.00001,
 # ======================================================================
 # 肾脏与泌尿
 # ======================================================================
-D("RN-AKI", "急性肾损伤", "renal", base=0.0002,
+D("RN-AKI", "急性肾损伤", "renal", base=2e-05,
   risk={"water": 1.0, "SBP": 0.9, "age": 0.7},
   org={"kidney": 0.40, "kidney_tubule": 0.25},
   labs={"CREA": (150.0, "add"), "BUN": (12.0, "add"), "K": (0.8, "add"),
@@ -625,7 +625,7 @@ D("RN-PKD", "多囊肾", "renal", base=0.00002,
   org={"kidney": 0.45, "liver": 0.10},
   labs={"CREA": (80.0, "add"), "U_BLD": (0.3, "add")},
   sx=["腰腹部胀痛", "高血压", "血尿"], dur=None, rare=True)
-D("RN-STONE", "肾结石", "renal", base=0.0008,
+D("RN-STONE", "肾结石", "renal", base=5e-05,
   risk={"water": 1.2, "salt": 0.7, "UA": 0.8}, org={"kidney": 0.10},
   labs={"U_BLD": (0.9, "add"), "UA": (60.0, "add")},
   sx=["突发腰腹绞痛", "向会阴放射", "肉眼血尿", "恶心"], acute=True, dur=200.0,
@@ -794,7 +794,7 @@ D("EN-HYPOPTH", "甲状旁腺功能减退", "endo", base=0.00002,
   org={"bone": 0.15}, labs={"PTH": (-12.0, "add"), "Ca": (-0.45, "add"),
                              "P": (0.35, "add")},
   sx=["手足搐搦", "口周麻木", "肌肉痉挛"], dur=None, rare=True)
-D("EN-GOUT", "痛风", "rheum", base=0.0008,
+D("EN-GOUT", "痛风", "rheum", base=5e-05,
   risk={"UA": 1.4, "alcohol": 1.2, "bmi": 0.8, "satfat": 0.6},
   org={"joint": 0.18, "kidney": 0.15},
   labs={"UA": (180.0, "add"), "CRP": (20.0, "add")},
@@ -946,7 +946,7 @@ D("NR-STROKE", "缺血性脑卒中", "neuro", base=0.00012,
   labs={"LAC": (0.8, "add")},
   sx=["突发单侧肢体无力", "言语不清", "口角歪斜", "视野缺损"], acute=True,
   dur=None, mortal=0.02, treat=["阿司匹林", "阿托伐他汀"])
-D("NR-TIA", "短暂性脑缺血发作", "neuro", base=0.0003,
+D("NR-TIA", "短暂性脑缺血发作", "neuro", base=1e-05,
   risk={"SBP": 1.0, "smoking": 1.0}, org={"brain": 0.10},
   sx=["一过性肢体麻木", "短暂失语", "数分钟自行缓解"], acute=True, dur=24.0)
 D("NR-ICH", "脑出血", "neuro", base=0.00006,
@@ -958,7 +958,7 @@ D("NR-SAH", "蛛网膜下腔出血", "neuro", base=0.00002,
   risk={"smoking": 1.0, "SBP": 0.9}, org={"brain": 0.45},
   sx=["霹雳样头痛", "颈项强直", "畏光"], acute=True, dur=None, pain=1.0,
   mortal=0.05, rare=True)
-D("NR-MIGRAINE", "偏头痛", "neuro", base=0.004,
+D("NR-MIGRAINE", "偏头痛", "neuro", base=0.0002,
   risk={"stress": 1.2, "sleep_debt": 1.0, "sex": 0.6}, org={},
   sx=["单侧搏动性头痛", "畏光畏声", "恶心", "活动后加重"], acute=True, dur=24.0,
   pain=0.75, treat=["布洛芬", "舒马曲坦"])
@@ -999,7 +999,7 @@ D("NR-ENCEPH", "病毒性脑炎", "neuro", base=0.00002,
   labs={"WBC": (1.5, "add"), "CRP": (20.0, "add")},
   sx=["发热", "意识模糊", "抽搐", "行为异常"], acute=True, dur=350.0, fever=0.8,
   mortal=0.01, rare=True, treat=["阿昔洛韦"])
-D("NR-CONCUSSION", "脑震荡", "neuro", base=0.0004, org={"brain": 0.12},
+D("NR-CONCUSSION", "脑震荡", "neuro", base=3e-05, org={"brain": 0.12},
   sx=["头部外伤后头痛", "短暂失忆", "恶心", "注意力不集中"], acute=True, dur=200.0,
   pain=0.5)
 D("NR-RADICULO", "腰椎间盘突出", "msk", base=0.0012,
@@ -1013,7 +1013,7 @@ D("NR-NEUROPATHY", "周围神经病变", "neuro", base=0.0004,
   risk={"sugar": 1.4, "alcohol": 1.2}, org={"nerve": 0.30},
   sx=["双足袜套样麻木", "烧灼感", "夜间加重"], dur=None, pain=0.45,
   treat=["甲钴胺", "普瑞巴林"])
-D("NR-BPPV", "良性阵发性位置性眩晕", "ent", base=0.0015,
+D("NR-BPPV", "良性阵发性位置性眩晕", "ent", base=5e-05,
   org={"ear": 0.10}, sx=["翻身时天旋地转", "持续数十秒", "恶心"], acute=True,
   dur=200.0, pain=0.1)
 D("NR-MENIERE", "梅尼埃病", "ent", base=0.0002,
@@ -1023,7 +1023,7 @@ D("NR-BRAIN-TUMOR", "脑肿瘤", "neuro", base=0.000015,
   org={"brain": 0.50, "eye": 0.15},
   sx=["晨起头痛加重", "喷射性呕吐", "癫痫发作", "视野缺损"], dur=None,
   pain=0.5, rare=True, mortal=0.002)
-D("NR-DELIRIUM", "谵妄", "neuro", base=0.0003,
+D("NR-DELIRIUM", "谵妄", "neuro", base=3e-05,
   risk={"age": 1.2, "pathogen": 0.6}, org={"brain": 0.20},
   sx=["注意力涣散", "昼夜颠倒", "视幻觉", "语无伦次"], acute=True, dur=150.0)
 D("NR-HUNTINGTON", "亨廷顿病", "neuro", base=0.000004,
@@ -1128,7 +1128,7 @@ D("RH-ALLERGY", "过敏性鼻炎", "rheum", base=0.006,
   labs={"IgE": (200.0, "add"), "EO_p": (3.5, "add")},
   sx=["晨起连续打喷嚏", "清水涕", "鼻痒眼痒"], dur=None, treat=["氯雷他定",
                                                                 "布地奈德鼻喷"])
-D("RH-URTICARIA", "荨麻疹", "derm", base=0.002,
+D("RH-URTICARIA", "荨麻疹", "derm", base=0.0001,
   risk={"allergen": 1.2, "stress": 0.6}, org={"skin": 0.18},
   sx=["风团", "剧烈瘙痒", "此起彼伏"], acute=True, dur=72.0, pain=0.25,
   treat=["西替利嗪"])
@@ -1163,7 +1163,7 @@ D("DR-ACNE", "痤疮", "derm", base=0.004, risk={"sugar": 0.8, "satfat": 0.5},
   org={"skin": 0.10}, sx=["面部丘疹脓疱", "粉刺", "结节"], dur=None, pain=0.25)
 D("DR-ROSACEA", "玫瑰痤疮", "derm", base=0.0012, org={"skin": 0.10},
   sx=["面颊阵发潮红", "灼热", "丘疹"], dur=None, pain=0.2)
-D("DR-CONTACT", "接触性皮炎", "derm", base=0.0018, risk={"allergen": 1.4},
+D("DR-CONTACT", "接触性皮炎", "derm", base=0.0002, risk={"allergen": 1.4},
   org={"skin": 0.15}, sx=["接触部位边界清楚的红斑水疱", "瘙痒灼痛"],
   acute=True, dur=150.0, pain=0.35)
 D("DR-TINEA", "体癣", "derm", base=0.0015, risk={"humidity": 1.2, "hygiene": 0.6},
@@ -1196,12 +1196,12 @@ D("MS-OA", "骨关节炎", "msk", base=0.0025,
   risk={"age": 1.5, "bmi": 1.2, "activity": 0.5}, org={"joint": 0.35},
   sx=["膝或髋负重时痛", "晨僵少于半小时", "关节摩擦感"], dur=None, pain=0.55,
   treat=["塞来昔布", "氨基葡萄糖"])
-D("MS-FRACTURE", "骨折", "msk", base=0.0003,
+D("MS-FRACTURE", "骨折", "msk", base=5e-05,
   risk={"bone": 1.6, "activity": 0.8, "age": 0.8}, org={"bone": 0.30,
                                                         "muscle": 0.15},
   labs={"ALP": (30.0, "add")},
   sx=["外伤后局部剧痛", "畸形", "不能负重"], acute=True, dur=1200.0, pain=0.9)
-D("MS-OSTEO-FRAG", "脆性骨折", "msk", base=0.00015,
+D("MS-OSTEO-FRAG", "脆性骨折", "msk", base=2e-05,
   risk={"bone": 2.0, "age": 1.4}, org={"bone": 0.35, "muscle": 0.2},
   sx=["轻微跌倒即骨折", "腰背痛加重", "身高变矮"], acute=True, dur=1500.0,
   pain=0.8)
@@ -1262,7 +1262,7 @@ D("EY-RETINOPATHY", "糖尿病视网膜病变", "eye", base=0.0002,
 D("EY-AMD", "年龄相关性黄斑变性", "eye", base=0.0002,
   risk={"age": 1.8, "smoking": 1.0}, org={"eye": 0.40},
   sx=["中央视野暗点", "看直线变形", "阅读困难"], dur=None, rare=True)
-D("EY-CONJUNCT", "结膜炎", "eye", base=0.002, risk={"allergen": 1.2,
+D("EY-CONJUNCT", "结膜炎", "eye", base=0.0002, risk={"allergen": 1.2,
                                                     "hygiene": 0.6},
   org={"eye": 0.10}, sx=["眼红", "分泌物增多", "异物感"], acute=True, dur=100.0,
   pain=0.3, treat=["人工泪液", "左氧氟沙星滴眼液"])
@@ -1283,7 +1283,7 @@ D("EN-NIHL", "噪声性听力损失", "ent", base=0.0004,
 D("EN-TINNITUS", "耳鸣", "ent", base=0.0015,
   risk={"noise": 1.2, "stress": 0.8}, org={"ear": 0.10},
   sx=["持续蝉鸣声", "夜间明显", "影响入睡"], dur=None, pain=0.2)
-D("EN-VERTIGO", "前庭性眩晕", "ent", base=0.0008, org={"ear": 0.15},
+D("EN-VERTIGO", "前庭性眩晕", "ent", base=5e-05, org={"ear": 0.15},
   sx=["旋转性眩晕", "恶心", "走路不稳"], acute=True, dur=120.0, pain=0.2)
 
 # ======================================================================

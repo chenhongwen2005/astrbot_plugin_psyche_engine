@@ -589,13 +589,23 @@ class Engine:
                              ("vitals", _pconst.VITALS)):
             if dim not in table:
                 continue
+            text = str(value).strip()
+            if text.lower() in ("auto", "自动"):
+                if gname != "life":
+                    return f"「{dim}」没有自动模式，直接填数字。"
+                (body.get("life_lock") or {}).pop(dim, None)
+                self.save(key, st)
+                return f"「{table[dim][0]}」已交回自动推算。"
             try:
-                v = float(value)
+                v = float(text)
             except (TypeError, ValueError):
                 return f"「{dim}」要填一个数字。"
             if v != v or abs(v) > 1e6:  # NaN / 离谱值直接拒绝
                 return f"「{dim}」的取值不合理。"
             body.setdefault(gname, {})[dim] = v
+            if gname == "life":
+                # 钉住：不然当晚就被睡眠/三餐/运动逻辑改回它自己的目标值
+                body.setdefault("life_lock", {})[dim] = True
             self.save(key, st)
             self.store.log(key, int(st.meta.get("turn", 0)), "phys_set",
                            {"dim": dim, "value": v})

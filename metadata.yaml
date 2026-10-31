@@ -23,7 +23,7 @@ desc: >-
   **声明**：本插件是角色扮演与创作辅助工具，不是医疗器械。诊断匹配、生化值、化验单
   均为面向叙事的简化模型，不构成医学意见，不可用于自我诊断或诊断他人。请仅用于虚构
   角色与明确知情的场景。
-version: 1.5.2
+version: 1.6.0
 author: 亓官浮尘
 repo: https://github.com/chenhongwen2005/astrbot_plugin_psyche_engine
 astrbot_version: ">=4.17.0"

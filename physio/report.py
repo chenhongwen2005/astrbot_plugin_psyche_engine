@@ -260,13 +260,14 @@ def split_pages(text: str, max_chars: int = 1400,
     title = lines[0].strip()
     rest = "\n".join(lines[1:]).strip()
     if not title.startswith("──") or not rest:
-        pages = _pack_all(text, max_chars, max_bytes)
+        pages = _pack_all(text, max_chars - 9, max_bytes - 9)
         n = len(pages)
         return [f"（{i + 1}/{n}）\n{p}" for i, p in enumerate(pages)] if n > 1 else pages
 
-    # 抬头在每页重复，先把它从预算里扣掉再排
+    # 抬头与页码前缀都要从预算里扣掉：页码最坏是「（10/12）」，8 个字符
     t_c, t_b = len(title) + 1, len(title.encode("utf-8")) + 1
-    pages = _pack_all(rest, max_chars - t_c, max_bytes - t_b)
+    pag = 9
+    pages = _pack_all(rest, max_chars - t_c - pag, max_bytes - t_b - pag)
     n = len(pages)
     return [f"（{i + 1}/{n}）\n{title}\n{p}" for i, p in enumerate(pages)]
 

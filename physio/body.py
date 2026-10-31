@@ -234,6 +234,16 @@ def env(body: Dict[str, Any], name: str) -> float:
     return float((body.get("env") or {}).get(name, 0.0))
 
 
+def locked(body: Dict[str, Any], name: str) -> bool:
+    """该生活维度是否被用户钉住。
+
+    睡眠、三餐、运动每小时都会把 sleep_h / salt / sugar / activity 往自己的
+    目标拉，`/心理 设置 sleep_h 4` 第二天就被改回 7.5。钉住之后自动逻辑让位，
+    值由用户说了算，直到用同样的命令设回 auto。
+    """
+    return bool((body.get("life_lock") or {}).get(name))
+
+
 def bmi(body: Dict[str, Any]) -> float:
     h = float(body.get("height", 172.0)) / 100.0
     w = float((body.get("vitals") or {}).get("WEIGHT")

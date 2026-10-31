@@ -124,7 +124,9 @@ class MindState:
             "body": self.body,
             "bio": {k: round(v, 5) for k, v in self.bio.items()},
             "neuro": {k: round(v, 5) for k, v in self.neuro.items()},
-            "sym": {k: round(v, 4) for k, v in self.sym.items() if v > 0.001},
+            # sym 全量落盘：只写 >0.001 会让衰减到 0 的症状在下次加载时
+            # 被基线的 0.08 顶回来，重启几次就把「已消退」变成「还在」。
+            "sym": {k: round(v, 4) for k, v in self.sym.items()},
             "traits": {k: round(v, 5) for k, v in self.traits.items()},
             "meta": self.meta,
         }

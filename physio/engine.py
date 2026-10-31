@@ -132,9 +132,10 @@ class Physiology:
     def _meals(self, body: Dict[str, Any], h: float, rng: random.Random,
                events: List[str]) -> None:
         life = body["life"]
-        # 三餐窗口
+        # 三餐份额合计 1.0：写成 0.30/0.40/0.35 等于每天多吃 5%，
+        # 一年下来健康人凭空涨四公斤。
         meals = ((7.0, 9.0, 0.30, "早餐"), (11.5, 13.5, 0.40, "午餐"),
-                 (17.5, 20.0, 0.35, "晚餐"))
+                 (17.5, 20.0, 0.30, "晚餐"))
         day = int(float(body.get("clock", 0.0)) // 24)
         done = body.setdefault("_meals_done", {})
         for lo, hi, share, name in meals:
@@ -147,25 +148,31 @@ class Physiology:
             if len(done) > 12:
                 for k in list(done)[:-6]:
                     done.pop(k, None)
-            if rng.random() > 0.06:  # 大多数时候按时吃
-                need_now = 2000.0 * (0.80 + 0.40 * float(life.get("fitness", 0.5)))
-                kcal = share * need_now * float(life.get("kcal", 1.0))
-                # 加工食品倾向：压力大、久坐、睡得少的人更常吃高盐高糖
-                junk = min(1.0, 0.25
-                           + 0.25 * max(0.0, float(life.get("stress", 0.3)) - 0.4)
-                           + 0.20 * max(0.0, float(life.get("sleep_debt", 0.0)) / 20.0)
-                           + 0.15 * max(0.0, float(life.get("sedentary", 6.0)) - 8.0) / 8.0)
-                life["salt"] = life.get("salt", 1.0) * 0.94 + (1.0 + 0.45 * junk) * 0.06
+            # 赶时间就随便对付一口，而不是整餐不吃：整天不吃会被下面的
+            # 热量收支记成长期亏空，一年下来健康人也会凭空掉四公斤。
+            missed = rng.random() <= 0.06
+            if missed and name == "早餐":
+                events.append("skip_breakfast")
+            need_now = 2000.0 * (0.80 + 0.40 * float(life.get("fitness", 0.5)))
+            kcal = share * need_now * float(life.get("kcal", 1.0)) * (0.90 if missed else 1.0)
+            # 加工食品倾向：压力大、久坐、睡得少的人更常吃高盐高糖
+            junk = min(1.0, 0.25
+                       + 0.25 * max(0.0, float(life.get("stress", 0.3)) - 0.4)
+                       + 0.20 * max(0.0, float(life.get("sleep_debt", 0.0)) / 20.0)
+                       + 0.15 * max(0.0, float(life.get("sedentary", 6.0)) - 8.0) / 8.0)
+            if not B.locked(body, "sugar"):
                 life["sugar"] = life.get("sugar", 1.0) * 0.94 + (1.0 + 0.6 * junk) * 0.06
+            if not B.locked(body, "salt"):
+                life["salt"] = life.get("salt", 1.0) * 0.94 + (1.0 + 0.45 * junk) * 0.06
+            if not B.locked(body, "satfat"):
                 life["satfat"] = life.get("satfat", 1.0) * 0.94 + (1.0 + 0.4 * junk) * 0.06
+            if not B.locked(body, "fiber"):
                 life["fiber"] = max(0.2, life.get("fiber", 0.7) * 0.98
                                     + 0.02 * (0.9 - 0.5 * junk))
+            if not B.locked(body, "protein"):
                 life["protein"] = max(0.3, min(1.2, life.get("protein", 0.85) * 0.98
                                                 + 0.02 * 0.95))
-                body["_kcal_today"] = float(body.get("_kcal_today", 0.0)) + kcal
-            else:
-                if name == "早餐":
-                    events.append("skip_breakfast")
+            body["_kcal_today"] = float(body.get("_kcal_today", 0.0)) + kcal
 
     def _sleep(self, body: Dict[str, Any], h: float, dt: float,
                rng: random.Random, events: List[str]) -> None:
@@ -181,7 +188,8 @@ class Physiology:
         target = max(4.0, min(9.5, target))
         p_sleep = 0.92 - 0.35 * max(0.0, stress - 0.6)
         if rng.random() < p_sleep:
-            life["sleep_h"] = float(life.get("sleep_h", 7.5)) * 0.9 + target * 0.1
+            if not B.locked(body, "sleep_h"):
+                life["sleep_h"] = float(life.get("sleep_h", 7.5)) * 0.9 + target * 0.1
             life["sleep_debt"] = max(0.0, debt - 0.20)
             life["sleep_qual"] = min(1.0, max(0.15,
                 float(life.get("sleep_qual", 0.8)) * 0.95
@@ -202,7 +210,8 @@ class Physiology:
         if rng.random() > base_p:
             return
         intensity = 0.4 + 0.5 * min(1.0, float(life.get("fitness", 0.5)))
-        life["fitness"] = min(1.0, float(life.get("fitness", 0.5)) + 0.004 * intensity)
+        if not B.locked(body, "fitness"):
+            life["fitness"] = min(1.0, float(life.get("fitness", 0.5)) + 0.004 * intensity)
         life["sleep_debt"] = max(0.0, float(life.get("sleep_debt", 0.0)) - 0.05)
         body["organs"]["muscle"] = min(1.10, body["organs"].get("muscle", 1.0) + 0.002)
         body["organs"]["heart"] = min(1.10, body["organs"].get("heart", 1.0) + 0.001)
@@ -258,41 +267,46 @@ class Physiology:
     # ==================================================================
     def _organs(self, body: Dict[str, Any], hours: float) -> None:
         impair: Dict[str, float] = {k: 0.0 for k in ORGANS}
+        slow: Dict[str, float] = {k: 0.0 for k in ORGANS}
         for c in B.alive_conditions(body):
             spec = DISEASES.get(c["code"])
             if not spec:
                 continue
             sev = float(c.get("sev", 0.0))
             ctrl = 1.0 - 0.5 * float(c.get("treat_effect", 0.0))
+            # 急症与慢病分两个桶：一场重症肺炎两周就能伤到肾小管，糖尿病
+            # 肾病要十来年。共用同一个时间常数，慢性病会在三年内把器官吃光。
+            bucket = impair if spec.get("acute") else slow
             for o, k in (spec["org"] or {}).items():
-                if o in impair:
-                    impair[o] = min(0.80, impair[o] + abs(k) * sev * ctrl)
+                if o in bucket:
+                    bucket[o] = min(0.80, bucket[o] + abs(k) * sev * ctrl)
 
         # 生活方式对器官的慢性影响
         life = body["life"]
-        impair["liver"] = min(0.95, impair["liver"]
-                              + 0.004 * max(0.0, float(life.get("alcohol", 0)) - 1.0))
-        impair["lungs"] = min(0.95, impair["lungs"]
-                              + 0.0015 * float(life.get("smoking", 0)))
-        impair["vessels"] = min(0.95, impair["vessels"]
-                                + 0.0004 * float(life.get("smoking", 0))
-                                + 0.0002 * max(0.0, B.bmi(body) - 26.0))
-        impair["fat_sens"] = min(0.9, impair["fat_sens"]
-                                 + 0.0006 * max(0.0, B.bmi(body) - 25.0))
+        slow["liver"] = min(0.95, slow["liver"]
+                            + 0.004 * max(0.0, float(life.get("alcohol", 0)) - 1.0))
+        slow["lungs"] = min(0.95, slow["lungs"]
+                            + 0.0015 * float(life.get("smoking", 0)))
+        slow["vessels"] = min(0.95, slow["vessels"]
+                              + 0.0004 * float(life.get("smoking", 0))
+                              + 0.0002 * max(0.0, B.bmi(body) - 26.0))
+        slow["fat_sens"] = min(0.9, slow["fat_sens"]
+                               + 0.0006 * max(0.0, B.bmi(body) - 25.0))
 
         for o, fn in list(body["organs"].items()):
             base = B.organ_baseline(o, float(body.get("age", 30.0)))
             if o == "fat":
                 continue
+            imp_a, imp_s = impair.get(o, 0.0), slow.get(o, 0.0)
+            imp = min(0.95, imp_a + imp_s)
             if o == "fat_sens":
                 body["organs"][o] = max(0.20, min(1.15, fn))
                 continue
-            target = base * (1.0 - impair.get(o, 0.0))
+            target = base * (1.0 - imp)
             dmg = float(body["damage"].get(o, 0.0))
-            if impair.get(o, 0.0) > 0.02:
-                # 损伤累积：器官越脆弱，同样的打击留下越多痕迹
-                # 2400 小时 ≈ 100 天持续损伤才累到 1.0，避免一次感冒就伤到器官
-                dmg += impair[o] * hours / 2400.0
+            if imp > 0.02:
+                # 损伤累积：急症按 100 天到满，慢病按 600 天到满
+                dmg += imp_a * hours / 2400.0 + imp_s * hours / 14400.0
             else:
                 dmg -= hours / max(24.0, ORGANS[o][2])
             dmg = max(0.0, min(0.95, dmg))
@@ -312,11 +326,12 @@ class Physiology:
     def _daily_balance(self, body: Dict[str, Any], events: List[str]) -> None:
         """一天结束时的热量收支结算。7700 kcal ≈ 1 kg 脂肪。"""
         intake = float(body.pop("_kcal_today", 0.0))
-        if intake <= 0:
-            return
+        # 一天什么都没吃也要结算。这里以前直接 return，于是"绝食 90 天"
+        # 的体重一点不降——赤字恰恰发生在 intake 为 0 的那些天。
         life = body["life"]
         need = 2000.0 * (0.80 + 0.40 * float(life.get("fitness", 0.5)))
-        need *= 1.0 + 0.15 * max(0.0, B.bmi(body) - 25.0)
+        # 需求侧不再按 BMI 放大：摄入侧（_meals）没有这一项，两边不同步的
+        # 结果是 BMI 一旦过 25 就天天亏空，肥胖预设一年能瘦十公斤。
         surplus = intake - need
         fat = float(body["organs"].get("fat", 1.0))
         # 1 个脂肪单位≈15 kg 体重，换算成体脂单位
@@ -331,7 +346,7 @@ class Physiology:
         # 用连续赤字/盈余天数做迟滞，避免一顿没吃就把人设改成节食者。
         deficit = int(body.get("_deficit_days", 0))
         surplus_days = int(body.get("_surplus_days", 0))
-        if intake < need * 0.75:
+        if 0.0 < intake < need * 0.75:
             deficit += 1
             surplus_days = 0
             events.append("underate")

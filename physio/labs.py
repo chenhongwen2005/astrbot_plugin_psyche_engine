@@ -39,6 +39,10 @@ HARD_LIMITS: Dict[str, Tuple[float, float]] = {
 }
 
 
+# 按定义可以为负的化验项（碱剩余、阴离子间隙）。其余一律不小于 0。
+NEG_OK = frozenset({"BE", "AG"})
+
+
 def _mid(key: str, sex: str = "m") -> float:
     lo, hi = ref_range(key, sex)
     return (lo + hi) / 2.0
@@ -231,7 +235,6 @@ def _organ_driven(body: Dict[str, Any], labs: Dict[str, float]) -> None:
     labs["CCP"] = 5.0
     labs["IgG4"] = 0.4
     labs["ACE"] = 32.0
-    labs["RPR"] = 0.05
 
     # ---- 胰腺与肿瘤标志物
     labs["AMY"] = 62.0
@@ -265,11 +268,15 @@ def _apply_conditions(body: Dict[str, Any], labs: Dict[str, float],
         treated = 1.0 - 0.55 * float(c.get("treat_effect", 0.0))
         k = sev * treated
         for lab, (delta, mode) in (spec["labs"] or {}).items():
+            # 疾病表里也写了 SpO2 / SBP / HR 这类体征：它们不在 LABS 里，
+            # 一律走 vitals，否则会以检验项的身份写进化验单，报告里看不到，
+            # 低氧和低血压就白算了。
+            tgt = vitals if (lab in vitals and lab not in LABS) else labs
             if mode == "mul":
-                cur = labs.get(lab, 0.0) or 1.0
-                labs[lab] = cur * (1.0 + delta) ** (k * 3.0)
+                cur = tgt.get(lab, 0.0) or 1.0
+                tgt[lab] = cur * (1.0 + delta) ** (k * 3.0)
             else:
-                labs[lab] = labs.get(lab, 0.0) + delta * k
+                tgt[lab] = tgt.get(lab, 0.0) + delta * k
         inflam += float(spec.get("inflam", 0.0)) * k
         fever += float(spec.get("fever", 0.0)) * k
         pain += float(spec.get("pain", 0.0)) * k
@@ -317,12 +324,11 @@ def _apply_drugs(body: Dict[str, Any], labs: Dict[str, float],
             acc = max(acc, 1.0 + 0.9 * (1.0 - B.organ(body, "kidney")))
         amp = r * dose * acc
         for lab, (delta, mode) in (spec["labs"] or {}).items():
+            tgt = vitals if (lab in vitals and lab not in LABS) else labs
             if mode == "mul":
-                labs[lab] = (labs.get(lab, 0.0) or 1.0) * (1.0 + delta) ** (amp * 2.0)
-            elif lab in vitals:
-                vitals[lab] = vitals.get(lab, 0.0) + delta * amp
+                tgt[lab] = (tgt.get(lab, 0.0) or 1.0) * (1.0 + delta) ** (amp * 2.0)
             else:
-                labs[lab] = labs.get(lab, 0.0) + delta * amp
+                tgt[lab] = tgt.get(lab, 0.0) + delta * amp
         derived.setdefault("drug_load", 0.0)
         derived["drug_load"] += amp * 0.1
         if acc > 1.25 and amp > 0.3:
@@ -426,14 +432,13 @@ def _vitals(body: Dict[str, Any], labs: Dict[str, float],
 
     v = {
         "HR": hr, "SBP": sbp, "DBP": dbp, "RR": 15.0,
-        "TEMP": 36.55 + 0.8 * derived.get("fever_drive", 0.0),
+        # 体温与疼痛的疾病分量在 compute() 里统一叠加：那时 fever_drive /
+        # pain_drive 才算出来，在这里读只能读到 0，等于永远不发烧、永远不疼。
+        "TEMP": 36.55,
         "SpO2": 97.5, "WEIGHT": weight, "BMI": bmi_v,
         "WAIST": (bmi_v - 20.0) * 2.1 + 66.0,
-        "PAIN": derived.get("pain_drive", 0.0) * 8.0,
+        "PAIN": 0.0,
     }
-    # 失血/脱水/感染对心率血压的影响由疾病偏移叠加（在 _apply_conditions 里）
-    v["HR"] += 12.0 * max(0.0, 1.0 - labs["HGB"] / (140.0 if sex == "m" else 125.0))
-    v["RR"] += 4.0 * max(0.0, 1.0 - labs["pO2"] / 95.0)
     return v
 
 
@@ -444,6 +449,14 @@ def compute(body: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, float], D
     vitals = _vitals(body, labs, {})
     derived: Dict[str, Any] = {}
     _apply_conditions(body, labs, vitals, derived)
+    # 发热、疼痛、失血/低氧对心率呼吸的连带影响，只能在疾病偏移之后叠加：
+    # 放在 _vitals() 里读到的 fever_drive 还是 0，读到的 HGB 还是病前的值。
+    sex = body.get("sex", "m")
+    vitals["TEMP"] += 0.85 * float(derived.get("fever_drive", 0.0))
+    vitals["PAIN"] = min(10.0, float(vitals.get("PAIN", 0.0))
+                         + 8.0 * float(derived.get("pain_drive", 0.0)))
+    vitals["HR"] += 12.0 * max(0.0, 1.0 - labs["HGB"] / (140.0 if sex == "m" else 125.0))
+    vitals["RR"] += 4.0 * max(0.0, 1.0 - labs["pO2"] / 95.0)
     _apply_drugs(body, labs, vitals, derived)
     _consistency(body, labs, vitals, derived)
 
@@ -451,6 +464,11 @@ def compute(body: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, float], D
     for k in list(labs):
         if k in HARD_LIMITS:
             labs[k] = _clip(k, labs[k])
+    # 化验值不会为负。药物的绝对减量能把 PSA、GGT、CRP 直接减到 0 以下，
+    # 报出「-54 U/L」比不给数据更糟。碱剩余与阴离子间隙按定义可以为负，放过。
+    for k in list(labs):
+        if k not in NEG_OK and labs[k] < 0.0:
+            labs[k] = 0.0
     for k in list(vitals):
         if k in HARD_LIMITS:
             vitals[k] = _clip(k, vitals[k])
