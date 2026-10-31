@@ -199,5 +199,50 @@
     "type": "bool",
     "default": true,
     "hint": "单向耦合：身体改精神，精神不改身体。关闭后两套系统互不干扰"
+  },
+  "emotion_enabled": {
+    "description": "启用情感层（13 个情绪分量 + 心境基线）",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后不注入情绪段，/心理 情感 停用；情绪由生化底色与本轮刺激共同驱动"
+  },
+  "emotion_style": {
+    "description": "情绪反应风格",
+    "type": "string",
+    "default": "balanced",
+    "options": [
+      "balanced",
+      "labile",
+      "stable"
+    ],
+    "hint": "balanced=常人；labile=情绪起伏大、退得慢；stable=钝感、回落快"
+  },
+  "emotion_persistence": {
+    "description": "情绪驻留倍数",
+    "type": "float",
+    "default": 1.5,
+    "slider": {
+      "min": 0.5,
+      "max": 4.0,
+      "step": 0.1
+    },
+    "hint": "乘在各个情绪的半衰期上。调大则怒气与低落持续更久；1.0 约等于文献半衰期"
+  },
+  "memory_enabled": {
+    "description": "启用类脑记忆（情景记忆的编码、巩固、检索与遗忘）",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后不记录也不注入记忆段，/心理 记忆 停用"
+  },
+  "memory_max": {
+    "description": "单个状态最多保存多少条记忆",
+    "type": "int",
+    "default": 240,
+    "slider": {
+      "min": 40,
+      "max": 1000,
+      "step": 20
+    },
+    "hint": "超限时淘汰强度最低、最旧的；一条记忆约 100~200 字节"
   }
 }

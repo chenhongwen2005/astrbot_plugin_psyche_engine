@@ -27,6 +27,10 @@ from . import pharm
 from .const import BIO, NEURO
 from .model import MindState
 
+# 异稳态负荷的基础消散率（每轮）。从 1.00 退到 0.50 约需 500 天虚拟时间，
+# 对应「缓解以年计」。没有它，负荷只会被应激顶上去、永远退不下来。
+AL_DISSIPATE = 0.00025
+
 TAU_SYM = {
     "ps": 0.22, "ng": 0.09, "md": 0.10, "ma": 0.26, "ax": 0.24, "oc": 0.12,
     "tr": 0.18, "di": 0.20, "ea": 0.10, "so": 0.12, "su": 0.14, "ic": 0.20,
@@ -96,16 +100,38 @@ class Dynamics:
     # ------------------------------------------------------------------
     # 1. 昼夜节律
     # ------------------------------------------------------------------
+    def _hour_of_day(self, st: MindState, cfg: Dict[str, Any]) -> float:
+        """这一轮是几点。只认虚拟时钟，不看墙钟。
+
+        墙钟在这里是错的：一次聊天十分钟能走掉几十轮，墙钟几乎不动，
+        每一轮都会拿同一个相位去乘皮质醇。所以时相必须来自虚拟时钟——
+        身体在跑的时候读它的 clock，身体关了就给精神侧自己攒一个。
+        """
+        h = cfg.get("hour")
+        if h is not None:
+            try:
+                return float(h) % 24.0
+            except (TypeError, ValueError):
+                pass
+        clock = (getattr(st, "body", None) or {}).get("clock")
+        if isinstance(clock, (int, float)) and clock > 0:
+            return float(clock) % 24.0
+        vh = float(st.meta.get("vhour", 8.0))
+        step = float(cfg.get("physio_hours_per_turn", 6.0) or 6.0)
+        st.meta["vhour"] = (vh + max(0.25, min(72.0, step))) % 24.0
+        return vh % 24.0
+
     def _circadian(self, st: MindState, cfg: Dict[str, Any]) -> None:
         if not cfg.get("enable_circadian", True):
             return
-        hour = cfg.get("hour")
-        if hour is None:
-            lt = time.localtime()
-            hour = lt.tm_hour + lt.tm_min / 60.0
-        # 皮质醇：8 点峰、20 点谷
+        hour = self._hour_of_day(st, cfg)
+        # 皮质醇：8 点峰、20 点谷。写成一阶追随「个体静息值 × 日相」，
+        # 而不是每轮乘一个大于 1 的系数——乘法那头没有不动点，
+        # 相位偏一点，整条曲线就被整体抬走（实测健康人一年后 z≈+3.6）。
         cort_phase = 0.5 + 0.5 * math.cos(2 * math.pi * (hour - 8.0) / 24.0)
-        st.bio["cortisol"] = _c(st.bio["cortisol"] * (0.82 + 0.36 * cort_phase))
+        rest = float(st.meta.get("cort_setpoint", st.bio["cortisol"]))
+        cort_target = _c(rest * (0.78 + 0.36 * cort_phase))
+        st.bio["cortisol"] = _c(st.bio["cortisol"] + (cort_target - st.bio["cortisol"]) * 0.22)
         # 褪黑素：3 点峰
         mel_phase = 0.5 + 0.5 * math.cos(2 * math.pi * (hour - 3.0) / 24.0)
         st.bio["melatonin"] = _c(0.10 + 0.72 * mel_phase)
@@ -741,7 +767,11 @@ class Dynamics:
             + 0.85 * max(0.0, 0.40 - b["serotonin"])   # 单胺耗竭本身就是代价
         )
         recovery = 0.55 * max(0.0, 0.45 - b["cortisol"]) + 0.35 * max(0.0, b["gaba"] - 0.6)
-        al = _c(al + 0.0065 * strain - 0.0009 * recovery)
+        # 外加一条恒定的消散项。strain 的起点（皮质醇 0.55）与 recovery 的
+        # 终点（0.45）之间是一段死区：负荷一旦被应激顶上去，恢复条件几乎
+        # 永远达不到，负荷就只增不减，一年后连健康人都被焊在 1.00。消散项
+        # 让「不处在应激里的人」以年为单位慢慢退下来。
+        al = _c(al + 0.0065 * strain - 0.0009 * recovery - AL_DISSIPATE)
         st.meta["allostatic_load"] = al
 
         # 慢性负荷下调调定点：这是「持续虐待最终致病」的唯一物理通路。

@@ -32,6 +32,15 @@ def _baseline_traits() -> Dict[str, float]:
     return {k: v[1] for k, v in TRAITS.items()}
 
 
+def _blank_emo() -> Dict[str, float]:
+    # 延迟导入：emotion 不依赖 model，但放模块顶层会让 import 顺序变脆
+    try:
+        from .emotion import blank
+        return blank()
+    except Exception:
+        return {}
+
+
 def default_meta() -> Dict[str, Any]:
     return {
         "turn": 0,
@@ -80,6 +89,10 @@ class MindState:
     neuro: Dict[str, float] = field(default_factory=_baseline_neuro)
     sym: Dict[str, float] = field(default_factory=_baseline_sym)
     traits: Dict[str, float] = field(default_factory=_baseline_traits)
+    # 情感：13 个分量 + mood（心境基线）。全是标量，直接进存档。
+    emo: Dict[str, float] = field(default_factory=_blank_emo)
+    # 记忆：情景记忆条目列表，每条是一个扁平 dict（见 psyche/memory.py）
+    mem: List[Dict[str, Any]] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=default_meta)
 
     # ---------------- 基本操作 ----------------
@@ -90,6 +103,8 @@ class MindState:
             neuro=copy.deepcopy(self.neuro),
             sym=copy.deepcopy(self.sym),
             traits=copy.deepcopy(self.traits),
+            emo=copy.deepcopy(self.emo),
+            mem=copy.deepcopy(self.mem),
             meta=copy.deepcopy(self.meta),
         )
 
@@ -128,6 +143,8 @@ class MindState:
             # 被基线的 0.08 顶回来，重启几次就把「已消退」变成「还在」。
             "sym": {k: round(v, 4) for k, v in self.sym.items()},
             "traits": {k: round(v, 5) for k, v in self.traits.items()},
+            "emo": {k: round(float(v), 4) for k, v in self.emo.items()},
+            "mem": self.mem,
             "meta": self.meta,
         }
 
@@ -149,6 +166,18 @@ class MindState:
         st.neuro.update({k: float(v) for k, v in (data.get("neuro") or {}).items() if k in st.neuro})
         st.sym.update({k: float(v) for k, v in (data.get("sym") or {}).items() if k in st.sym})
         st.traits.update({k: float(v) for k, v in (data.get("traits") or {}).items() if k in st.traits})
+        for k, v in (data.get("emo") or {}).items():
+            try:
+                st.emo[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+        raw_mem = data.get("mem")
+        if isinstance(raw_mem, list):
+            # 只收结构完整的条目：存档被手工改过、或早期版本字段不同，
+            # 坏一条就会让整轮渲染炸掉。
+            st.mem = [it for it in raw_mem
+                      if isinstance(it, dict) and isinstance(it.get("text"), str)
+                      and isinstance(it.get("turn", 0), (int, float))]
         meta = default_meta()
         meta.update(data.get("meta") or {})
         st.meta = meta

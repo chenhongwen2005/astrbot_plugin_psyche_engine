@@ -105,6 +105,16 @@ def main() -> None:
               f"（慢性化 {result.dx.chronic:.0%}）")
 
     print("\n" + "═" * 78)
+    print("情绪与记忆：同一场对话留下的两样东西")
+    print("═" * 78)
+    from psyche import emotion as emo_mod, memory as mem_mod
+
+    st_now = eng.load("demo")
+    print(emo_mod.render_report(st_now))
+    print()
+    print(mem_mod.render_report(st_now, limit=5))
+
+    print("\n" + "═" * 78)
     print("最后一次注入给模型的最高优先级块（截断展示）")
     print("═" * 78)
     print(result.block)

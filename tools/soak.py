@@ -182,6 +182,46 @@ def check_body(rep: Report, body: Dict[str, Any], scene: str, where: str) -> Non
         rep.bad(scene, where, f"时钟为负：{clock}")
 
 
+def check_mind(rep: Report, st, scene: str, where: str) -> None:
+    """情感与记忆的不变量。
+
+    长程里最容易坏的不是单点数值，而是「慢慢漂」：情绪顶到 1 下不来、
+    记忆条数无上限地涨、条目缺字段导致渲染时 KeyError。
+    """
+    emo = getattr(st, "emo", None) or {}
+    if not emo:
+        rep.bad(scene, where, "情感状态为空（旧存档未补建）")
+    for k, v in emo.items():
+        if not isinstance(v, (int, float)) or v != v or math.isinf(v):
+            rep.bad(scene, where, f"情绪 {k} 不是有限数：{v!r}")
+            continue
+        lo, hi = (-1.0, 1.0) if k == "mood" else (0.0, 1.0)
+        if not (lo <= v <= hi):
+            rep.bad(scene, where, f"情绪 {k}={v:.3f} 越过 {lo}~{hi}")
+    try:
+        from psyche import emotion as _E
+        d = _E.dimensions(emo)
+        if not (-1.0 <= d["valence"] <= 1.0) or not (0.0 <= d["intensity"] <= 1.0):
+            rep.bad(scene, where, f"情绪维度越界：{d}")
+    except Exception as e:  # noqa: BLE001
+        rep.bad(scene, where, f"情绪维度算不出来：{type(e).__name__}: {e}")
+
+    mem = getattr(st, "mem", None) or []
+    cap = int(st.meta.get("memory_cap") or 240)
+    if len(mem) > cap:
+        rep.bad(scene, where, f"记忆条数超限：{len(mem)} > {cap}")
+    need = ("id", "text", "turn", "clock", "va", "ar", "tags", "s", "hits", "con")
+    for i, it in enumerate(mem[:3] + mem[-3:]):
+        if not isinstance(it, dict):
+            rep.bad(scene, where, f"记忆条目不是 dict：{type(it).__name__}")
+            continue
+        miss = [k for k in need if k not in it]
+        if miss:
+            rep.bad(scene, where, f"记忆条目缺字段 {miss}：{str(it)[:60]}")
+        if float(it.get("s", 0)) < 0 or float(it.get("s", 0)) > 2.5:
+            rep.bad(scene, where, f"记忆强度越界：{it.get('s')}")
+
+
 def check_monotonic(rep: Report, prev: Dict[str, Any], body: Dict[str, Any],
                     scene: str, where: str) -> None:
     a, b = float(prev.get("clock", 0.0)), float(body.get("clock", 0.0))
@@ -214,9 +254,11 @@ async def run_days(eng: Engine, key: str, days: int, rep: Report, scene: str,
                 b.setdefault("env", {}).update(keep.get("env") or {})
             await eng.turn(key, txt, None)
         if (d + 1) % every == 0:
-            body = eng.load(key).body
+            st = eng.load(key)
+            body = st.body
             where = f"第 {d + 1} 天 @{float(body.get('clock', 0)) / 24:.0f}d"
             check_body(rep, body, scene, where)
+            check_mind(rep, st, scene, where)
     dt = time.time() - t0
     rep.note(f"{scene}: {days} 天 / {days * 4} 轮，{dt:.1f}s（{dt / max(1, days * 4) * 1000:.1f}ms/轮）")
     return eng.load(key).body
@@ -248,6 +290,9 @@ async def scene_baseline(rep: Report, years: float) -> None:
         rep.bad("baseline", "体重", f"健康人三年内体重漂移 {w0:.1f} → {w1:.1f}kg")
     conds = [c["code"] for c in body.get("conditions") or []]
     rep.note(f"三年内新发：{conds or '无'}")
+    st = eng.load(key)
+    rep.note(f"情绪 效价 {st.emo.get('mood', 0):+.2f}（心境基线）｜"
+             f"记忆 {len(st.mem)} 条（上限 {st.meta.get('memory_cap')}）")
 
 
 async def scene_presets(rep: Report) -> None:

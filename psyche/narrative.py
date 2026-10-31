@@ -13,6 +13,8 @@ from typing import Any, Dict, List
 
 from .const import BIO, DOMAINS, NEURO, SEVERITY_LABELS, SYM, symptom_label
 from .diagnose import Diagnosis
+from . import emotion as _emo
+from . import memory as _mem
 from . import pharm
 from .compat import physio as _P
 
@@ -1016,6 +1018,16 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
     if phys:
         sections.append(sec("身体（此刻的全身状态）", phys))
 
+    if cfg.get("emotion_enabled", True):
+        emo = _emotion_section(st)
+        if emo:
+            sections.append(sec("情绪（此刻的底色）", emo))
+
+    if cfg.get("memory_enabled", True):
+        mem = _memory_section(st)
+        if mem:
+            sections.append(sec("记忆（被这一句勾起来的事）", mem))
+
     phen = _phenomenology(st) if p else _phenomenology_normal(st)
     sections.append(sec("此刻的主观体验（内部参考，不要逐条复述）", phen))
 
@@ -1069,6 +1081,28 @@ def _physio_section(st) -> str:
     return "\n".join(lines)
 
 
+def _emotion_section(st) -> str:
+    """情绪这一段：给底色、给行为落点，不给台词。"""
+    return _emo.render_block(st)
+
+
+def _memory_section(st) -> str:
+    """记忆这一段：这一句勾起了哪几件事，以及它们当时是什么滋味。"""
+    return _mem.render_block(st, query=str(st.meta.get("last_user") or ""),
+                             emo_state=getattr(st, "emo", None))
+
+
+def render_emotion_section(st) -> str:
+    """/心理 情感：人看的版本。"""
+    return _emo.render_report(st)
+
+
+def render_memory_section(st, query: str = "", limit: int = 15) -> str:
+    """/心理 记忆：人看的版本。"""
+    return _mem.render_report(st, query=query, limit=limit,
+                              emo_state=getattr(st, "emo", None))
+
+
 def render_body_section(st) -> str:
     """/心理 生理：与注入块里同一段文字，去掉给模型的表演指令。
 
@@ -1105,6 +1139,23 @@ def _scale_min(st) -> str:
         return ""
     code, a = next(iter(anchor.items()))
     return f"\n## 量表锚点\n- {code}：{float(a.get('total', 0)):.0f} 分（{a.get('grade', '-')}），不得系统性偏离"
+
+
+def _emotion_min(st) -> str:
+    d = _emo.dimensions(_emo.ensure(st))
+    if d["intensity"] < 0.10 and d["dominant"] == "neutral":
+        return ""
+    return (f"\n## 情绪\n- 主调「{d['dominant_zh']}」，强度 {d['intensity']:.2f}。"
+            "按这个底色说话，不要点明情绪。")
+
+
+def _memory_min(st) -> str:
+    mem = _mem.ensure(st)
+    if not mem:
+        return ""
+    it = max(mem, key=lambda x: float(x.get("clock", 0.0)))
+    return (f"\n## 记忆\n- 你还记得：{str(it.get('text', ''))[:40]}"
+            "（不必主动提，被问起再说）")
 
 
 def _directives_min(perf: str, sev: float, st, has_dx: bool) -> str:
@@ -1158,12 +1209,18 @@ def _compact(st, dx: Diagnosis, cfg: Dict[str, Any], max_chars: int) -> str:
     sc_full = ("\n## 量表锚点\n" + _scale_section(st)[:220]) if _scale_section(st) else ""
     med_full = ("\n## 在服药物\n" + _med_section(st)[:320]) if _med_section(st) else ""
 
-    # 顺序即优先级：诊断 > 身体 > 量表锚点 > 表演要求 > 主动流露 > 药物 > 形态 > 指标
+    # 顺序即优先级：诊断 > 身体 > 量表锚点 > 情绪 > 记忆 > 表演要求 > 主动流露 > 药物 > 形态 > 指标
+    # 量表锚点排在情绪与记忆之前：它是模型自己填过的硬锚，丢了就等于给了
+    # 它「忘了自己填过什么」的退路。情绪与记忆可以整段放弃，锚点不能。
     phys_fn = _physio_section(st) if cfg.get("physio_enabled", True) else ""
+    emo_fn = _emotion_section(st) if cfg.get("emotion_enabled", True) else ""
+    mem_fn = _memory_section(st) if cfg.get("memory_enabled", True) else ""
     candidates = [
         ("诊断", dx_full, "\n## 诊断\n" + _dx_section(dx, st)[:130]),
         ("身体", ("\n## 身体\n" + phys_fn[:380]) if phys_fn else "", _physio_min(st)),
         ("量表锚点", sc_full, _scale_min(st)),
+        ("情绪", ("\n## 情绪\n" + emo_fn[:260]) if emo_fn else "", _emotion_min(st)),
+        ("记忆", ("\n## 记忆\n" + mem_fn[:260]) if mem_fn else "", _memory_min(st)),
         ("表演要求", "\n## 表演要求\n" + _directives(perf, dx.severity, st, has_dx=bool(p)),
          _directives_min(perf, dx.severity, st, has_dx=bool(p))),
         ("主动流露", "\n## 主动流露\n" + _express_section(st, dx), _express_min(st)),
@@ -1212,6 +1269,19 @@ def render_card(st, dx: Diagnosis) -> str:
         if dx.differential:
             lines.append("最接近  " + "｜".join(
                 f"{d.code} {d.zh} {d.prob:.0%}（{d.met}/{d.total} 条）" for d in dx.differential[:3]))
+
+    lines.append("")
+    d = _emo.dimensions(_emo.ensure(st))
+    tops = "｜".join(f"{zh} {v:.2f}" for _k, zh, v in _emo.top_emotions(_emo.ensure(st), 3))
+    lines.append("── 情绪 ──")
+    lines.append(f"{d['dominant_zh']:<6s}{_bar(d['intensity'])} 强度 {d['intensity']:.2f}"
+                 f"　效价 {d['valence']:+.2f}　唤醒 {d['arousal']:.2f}"
+                 f"　心境 {_emo.ensure(st)['mood']:+.2f}")
+    if tops:
+        lines.append("分量    " + tops)
+    mem_n = len(_mem.ensure(st))
+    if mem_n:
+        lines.append(f"记忆    {mem_n} 条（工作记忆 {len(_mem.working_set(st))} 条）")
 
     lines.append("")
     lines.append("── 类脑生化 ──")
@@ -1344,6 +1414,13 @@ def render_help() -> str:
         "/心理 快进 <轮数> 快速演化 N 轮（不产生对话）\n"
         "/心理 重置        回到当前预设的初始状态\n"
         "/心理 导出        导出状态 JSON\n"
+        "\n"
+        "【情感与记忆】\n"
+        "/心理 情感            此刻的情绪底色（13 个分量、效价、唤醒、心境基线）\n"
+        "/心理 记忆            最近记得的事（强度、巩固程度、当时的情绪）\n"
+        "/心理 记忆 <关键词>   按关键词检索记忆\n"
+        "/心理 记忆 清空       清空记忆，状态与身体不受影响\n"
+        "/心理 设定情绪 <分量> <值>  手工设定某个情绪分量，mood 为心境基线\n"
         "\n"
         "【身体 · 体检与生活】\n"
         "/心理 生理            一句话说清此刻身上什么情况\n"

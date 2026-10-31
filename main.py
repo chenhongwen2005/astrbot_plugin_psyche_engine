@@ -252,6 +252,34 @@ class PsycheEnginePlugin(Star):
                 yield event.plain_result(self.engine.fast_forward(key, n))
                 return
 
+            # ---------------- 情感与记忆 ----------------
+            if sub in ("情感", "情绪", "心情", "emotion"):
+                yield event.plain_result(self.engine.emotion_report(key))
+                return
+
+            if sub in ("记忆", "回忆", "memory"):
+                if not args:
+                    yield event.plain_result(self.engine.memory_report(key))
+                    return
+                if args[0] in ("清空", "清除", "clear"):
+                    yield event.plain_result(self.engine.memory_clear(key))
+                    return
+                yield event.plain_result(self.engine.memory_search(key, " ".join(args)))
+                return
+
+            if sub in ("设定情绪", "情绪设定", "setemo"):
+                from .psyche import emotion as _emo
+
+                if len(args) < 2:
+                    names = "、".join(f"{k}（{v[0]}）" for k, v in _emo.EMOTIONS.items())
+                    yield event.plain_result(
+                        f"用法：/心理 设定情绪 <分量> <值>\n分量：{names}\n"
+                        "mood 是心境基线，取值 -1~1，其余 0~1。"
+                    )
+                    return
+                yield event.plain_result(self.engine.set_emotion(key, args[0], args[1]))
+                return
+
             # ---------------- 身体侧 ----------------
             if sub in ("生理", "身体", "体感"):
                 st = self.engine.load(key)

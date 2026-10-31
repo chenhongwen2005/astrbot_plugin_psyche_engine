@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from . import emotion as emo_mod
+from . import memory as mem_mod
 from . import narrative, pharm, presets, scales as scales_mod
 from .appraisal import (DOMAIN_KEYS, EXTRACT_PROMPT, appraise_fallback,
                         apply_keyword_nudges, detect_crisis, parse_llm_output)
@@ -117,6 +119,9 @@ class Engine:
         # 判据取 WEIGHT 而不是 dict 非空：早期存档写下过 WEIGHT=0.0 的空表。
         if not (st.body.get("labs") and (st.body.get("vitals") or {}).get("WEIGHT")):
             self.phys.refresh(st.body)
+        # 旧存档没有情感字段；记忆容量也随配置走，不信任存档里的旧值
+        emo_mod.ensure(st)
+        st.meta["memory_cap"] = int(self.cfg.get("memory_max", 240))
         self._cache[key] = st
         return st
 
@@ -141,6 +146,15 @@ class Engine:
     def peek(self, key: str):
         st = self.load(key)
         return st, diagnose(st, self.cfg)
+
+    def _turn_hours(self) -> float:
+        """一轮对话推进多少虚拟小时。身体关闭时退成 1 小时。"""
+        if not self.cfg.get("physio_enabled", True):
+            return 1.0
+        try:
+            return max(0.25, min(72.0, float(self.cfg.get("physio_hours_per_turn", 6.0))))
+        except (TypeError, ValueError):
+            return 6.0
 
     # ------------------------------------------------------------------
     # 主流程
@@ -168,6 +182,18 @@ class Engine:
                 st.meta["physio_events"] = (phys_out.get("events") or [])[-8:]
             # 精神侧再走：受身体影响后的神经化学是这一轮的新起点
             self.dyn.step(st, ap)
+
+            # 情感：生化给底色（慢），本轮刺激给尖峰（快）
+            hours = self._turn_hours()
+            emo_state = None
+            if self.cfg.get("emotion_enabled", True):
+                emo_mod.step(st, ap, hours, self.cfg, text)
+                emo_state = st.emo
+            # 记忆：带着这一刻的情绪颜色编码，下一轮才可能被勾起来
+            if self.cfg.get("memory_enabled", True):
+                st.meta["memory_cap"] = int(self.cfg.get("memory_max", 240))
+                mem_mod.step(st, text, ap, hours, emo_state, self.cfg)
+
             dx = diagnose(st, self.cfg)
             update_state(st, dx)
 
@@ -612,6 +638,57 @@ class Engine:
             return f"已把「{table[dim][0]}」设为 {v:g}。"
         avail = "、".join([f"{k}（{v[0]}）" for k, v in _pconst.LIFE.items()][:8])
         return f"未知维度：{dim}。常用的有：{avail} 等等，共 {len(_pconst.LIFE)} 项。"
+
+    # ------------------------------------------------------------------
+    # 情感与记忆
+    # ------------------------------------------------------------------
+    def emotion_report(self, key: str) -> str:
+        st = self.load(key)
+        if not self.cfg.get("emotion_enabled", True):
+            return "情感模块未启用（emotion_enabled=false）。"
+        return emo_mod.render_report(st)
+
+    def memory_report(self, key: str) -> str:
+        st = self.load(key)
+        if not self.cfg.get("memory_enabled", True):
+            return "记忆模块未启用（memory_enabled=false）。"
+        return mem_mod.render_report(st, emo_state=st.emo)
+
+    def memory_search(self, key: str, query: str, limit: int = 8) -> str:
+        st = self.load(key)
+        if not self.cfg.get("memory_enabled", True):
+            return "记忆模块未启用（memory_enabled=false）。"
+        if not (query or "").strip():
+            return "用法：/心理 记忆 <关键词>"
+        out = mem_mod.render_report(st, query=query.strip(), limit=limit, emo_state=st.emo)
+        # 检索会加强被命中的记忆，落盘一次
+        self.save(key, st)
+        return out
+
+    def memory_clear(self, key: str) -> str:
+        st = self.load(key)
+        n = mem_mod.clear(st)
+        self.save(key, st)
+        self.store.log(key, int(st.meta.get("turn", 0)), "memory_clear", {"n": n})
+        return f"已清空 {n} 条记忆。状态、诊断与身体不受影响。"
+
+    def set_emotion(self, key: str, dim: str, value: str) -> str:
+        """手工设定某一情感分量，用于拉回明显的跑偏。"""
+        st = self.load(key)
+        dim = (dim or "").strip()
+        if dim not in emo_mod.EMOTIONS and dim != "mood":
+            names = "、".join(f"{k}（{v[0]}）" for k, v in emo_mod.EMOTIONS.items())
+            return f"未知分量：{dim}\n可用：{names}、mood（心境基线 -1~1）"
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return "值要填数字。"
+        if v != v:
+            return "取值不合理。"
+        e = emo_mod.ensure(st)
+        e[dim] = max(-1.0, min(1.0, v)) if dim == "mood" else max(0.0, min(1.0, v))
+        self.save(key, st)
+        return f"已把「{dim}」设为 {v:g}。"
 
     # ------------------------------------------------------------------
     def timeline(self, key: str, limit: int = 15) -> str:
