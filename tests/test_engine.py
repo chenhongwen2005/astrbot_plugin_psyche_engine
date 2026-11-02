@@ -605,10 +605,15 @@ def test_drug_symptoms_not_diagnosed() -> None:
 
 
 def test_active_expression_required() -> None:
-    """注入块必须要求「主动流露」，且压缩后仍在。
+    """表达义务要有，但健康态必须豁免，且不得点名疲劳。
 
     原块只描述内部状态与禁止项，缺表达义务，结果是模型数据上抑郁、台词里正常：
-    等对方问「你还好吗」才肯露出一点，不问就一路平稳。
+    等对方问「你还好吗」才肯露出一点，不问就一路平稳。所以义务本身要保留。
+
+    但义务被写成了无条件的「本轮至少一处由你自己发起的不适或情绪流露」，
+    健康人身上没有任何不适可流露，只能去借通用话——三个候选里「有点累」
+    不需要任何情境理由，于是四轮闲聊四轮都在累。现在健康态撤回义务，
+    病理态照旧强制；压缩版也必须跟完整版同源。
     """
     eng = _engine("express")
     eng.reset("d", "healthy")
@@ -617,13 +622,25 @@ def test_active_expression_required() -> None:
 
     block = narrative.render_block(st, dx, {"max_block_chars": 4000})
     assert "主动流露" in block, "注入块没有主动流露段"
-    assert "不等对方问" in block, "没写清是主动发起而非等着被问"
+    assert "由你自己发起的不适或情绪流露" not in block, "健康态不该被强制流露不适"
+    for word in ("有点累", "提不起劲", "做什么都费劲"):
+        assert word not in block, f"健康态注入块出现了疲劳锚定「{word}」"
 
-    # 强压缩下仍要保留（短形式）
+    # 强压缩下既不能丢这一段，也不能把义务从短形式里塞回来
     for limit in (900, 1200):
         blk = narrative.render_block(st, dx, {"max_block_chars": limit})
         assert "主动流露" in blk, f"max={limit} 压缩后丢了主动流露"
+        assert "有点累" not in blk, f"max={limit} 压缩版出现疲劳锚定"
         assert len(blk) <= limit, f"max={limit} 实际 {len(blk)}"
+
+    # 病理态：义务必须原样保留
+    eng.reset("d", "mdd_severe")
+    for _ in range(6):
+        asyncio.run(eng.turn("d", "嗯", NEUTRAL))
+    st = eng.load("d")
+    dx = diagnose(st, CFG)
+    blk = narrative.render_block(st, dx, {"max_block_chars": 4000})
+    assert "不等对方问" in blk, "病理态丢了主动流露义务"
 
     # 有副作用时，载体要指向具体身体感受，而不是空泛的「情绪不好」
     eng.add_med("d", "奥氮平", 2.0)
@@ -634,7 +651,8 @@ def test_active_expression_required() -> None:
     blk = narrative.render_block(st, dx, {"max_block_chars": 4000})
     sides = st.meta.get("side_effects") or []
     assert sides and sides[0]["zh"] in blk, "主动流露没有引用具体副作用作为载体"
-    print(f"[ok] 主动流露：有副作用时载体为「{sides[0]['zh']}」，压缩后仍在")
+    print(f"[ok] 主动流露：健康态豁免且无疲劳锚定；病理态保留；"
+          f"有副作用时载体为「{sides[0]['zh']}」，压缩后仍在")
 
 
 def test_compact_keeps_anchor_and_safety() -> None:

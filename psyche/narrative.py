@@ -33,10 +33,17 @@ PERF: Dict[str, Dict[str, Any]] = {
     # 正常态不是「没有配方」，它有自己的表征：波动存在，但有弹性、有边界、
     # 不病理化自己、不把对话变成治疗。缺这一段时模型会退化成通用客服人格。
     "normal": {
-        "voice": "像普通人聊天：语气有起伏，会累、会烦、会走神，但能自己转回来；"
+        # voice 里原本写了「会累、会烦、会走神」。这句看着无害，实际是给模型
+        # 递了一个万能借口：不管聊什么，「有点累」都能圆上，于是每轮都先累一下。
+        # 健康态要的是「有波动」，不是「有疲惫」，换成不指向身体的那两个。
+        "voice": "像普通人聊天：语气有起伏，会嫌麻烦、会走神，但能自己转回来；"
                  "不把自己当心理案例，也不把对方当病人。",
         "must": [
-            "至少一处与情境相符的自然情绪反应（嫌麻烦／被逗到／有点累／不太在意），幅度小但真实。",
+            # 「有点累」曾排在三个示例的首位。它是不需要情境理由就能写出来的
+            # 那一个，模型于是把它当默认动作，四轮闲聊里四轮都在累。
+            # 换成必须跟着话头走的反应，并明确允许「没什么可反应的」。
+            "至少一处跟着话头走的自然反应（被逗到／觉得麻烦／不太在意／随口吐一句槽），"
+            "幅度小但真实；这轮确实没什么可反应的，就正常接话。",
             "有一处口语化的随意表达（口头语、半截句、顺带跑题一句），不要每句都完整工整。",
             "遇到不认同的地方直接说出来或轻轻带过，不要一律附和。",
         ],
@@ -789,6 +796,22 @@ def _med_section(st) -> str:
     return "\n".join(lines)
 
 
+def _express_exempt(st, dx) -> bool:
+    """这一轮是否豁免「必须流露」的表达义务。
+
+    只有健康态豁免：没副作用、没镇静、严重度低于轻度阈值、没有主诊断、
+    也没有活跃热点。三个调用点（完整版、压缩版、节标题）必须同源，
+    否则压缩一触发，义务又会从另一条路径回来。
+    """
+    return bool(
+        not (st.meta.get("side_effects") or [])
+        and float(st.meta.get("sedation", 0.0)) < 0.35
+        and dx.severity < 25
+        and not dx.primary
+        and not (st.meta.get("hot") or {})
+    )
+
+
 def _express_section(st, dx: Diagnosis) -> str:
     """主动流露：把「状态」变成「必须被对方感觉到的东西」。
 
@@ -800,6 +823,19 @@ def _express_section(st, dx: Diagnosis) -> str:
     sev = dx.severity
     hot = st.meta.get("hot") or {}
     lines: List[str] = []
+
+    # 健康态没有「不适」可以流露。这一段原本是无条件要求的：本轮至少一处
+    # 由你自己发起的不适或情绪流露。没有真实素材时，模型只能去借通用话，
+    # 而三个候选里「有点累」最好写，于是健康人也被写成天天累。
+    # 表达义务只在真有东西可表达时成立；健康态撤回义务，只留「别演客服」。
+    if _express_exempt(st, dx):
+        return (
+            "- 这一轮**不需要**专门表露不适。身体没毛病、情绪也没压着，"
+            "就不要为了显得真实而额外加一句累、困或烦。\n"
+            "- 话头上真有可接的情绪（被逗到、觉得麻烦、懒得展开），让它自然挂在句子上即可；"
+            "没有就平实接话。\n"
+            "- 平实不等于客服腔：可以有口头语、半截句、跑题一句，但不要凭空造身体不适。"
+        )
 
     lines.append("本轮至少要有一处**由你自己发起**的不适或情绪流露，不能等对方问。"
                  "不是报告状态，是让对方从话里感觉到。")
@@ -819,7 +855,7 @@ def _express_section(st, dx: Diagnosis) -> str:
         carriers.append(f"把「{symptom_label(k)}」落在一个具体动作上，而不是说出它的名字")
 
     if not carriers:
-        carriers.append("一处与情境相符的小情绪（嫌麻烦、有点累、没兴致），幅度小但要真的出现")
+        carriers.append("一处与情境相符的小情绪（嫌麻烦、懒得展开、没兴致），幅度小但要真的出现")
 
     lines.append("\n可用的载体（选 1~2 个，不要每轮都用同一招）：")
     lines += [f"- {c}" for c in carriers[:4]]
@@ -1033,7 +1069,9 @@ def render_block(st, dx: Diagnosis, cfg: Dict[str, Any] | None = None) -> str:
 
     sections.append(sec("表演要求", _directives(perf, dx.severity, st, has_dx=bool(p))))
 
-    sections.append(sec("主动流露（不等对方问）", _express_section(st, dx)))
+    flex_title = "主动流露（健康态：没有就不必硬凑）" if _express_exempt(st, dx) \
+        else "主动流露（不等对方问）"
+    sections.append(sec(flex_title, _express_section(st, dx)))
 
     sections.append(sec("输出形态", "- " + _style(perf, st)))
 
@@ -1168,8 +1206,12 @@ def _directives_min(perf: str, sev: float, st, has_dx: bool) -> str:
     return "\n".join(lines)
 
 
-def _express_min(st) -> str:
+def _express_min(st, dx=None) -> str:
     sides = st.meta.get("side_effects") or []
+    # 压缩版也要认健康态：完整版撤回了表达义务，压缩版不能又把它塞回去，
+    # 否则块一超长，模型反而收到「必须有不适」的指令。
+    if dx is not None and _express_exempt(st, dx):
+        return "\n## 主动流露\n- 健康态：不必专门表露不适，没有就平实接话，别额外加累或烦。"
     tail = f"可借副作用「{sides[0]['zh']}」落地。" if sides else ""
     return ("\n## 主动流露\n至少一处由你自己发起的不适或情绪，不等对方问，"
             "用具体身体感受带出来，一句话即可；不许自报量表。" + tail)
@@ -1223,7 +1265,7 @@ def _compact(st, dx: Diagnosis, cfg: Dict[str, Any], max_chars: int) -> str:
         ("记忆", ("\n## 记忆\n" + mem_fn[:260]) if mem_fn else "", _memory_min(st)),
         ("表演要求", "\n## 表演要求\n" + _directives(perf, dx.severity, st, has_dx=bool(p)),
          _directives_min(perf, dx.severity, st, has_dx=bool(p))),
-        ("主动流露", "\n## 主动流露\n" + _express_section(st, dx), _express_min(st)),
+        ("主动流露", "\n## 主动流露\n" + _express_section(st, dx), _express_min(st, dx)),
         ("在服药物", med_full, _med_min(st)),
         ("形态", "\n## 形态\n" + _style(perf, st), ""),
         ("指标", "\n## 指标\n" + ((_bio_section(st) or "各项接近常模")[:180]
