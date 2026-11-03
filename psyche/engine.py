@@ -650,14 +650,11 @@ class Engine:
     def phys_advance(self, key: str, hours: float = 24.0) -> str:
         st = self.load(key)
         hours = max(0.0, min(24.0 * 365, float(hours)))
-        # engine.step 内部一次最多走 14 天（保证逐小时循环不至于太长），
-        # 这里分段调用，才能支持"推进一个月/一年"
+        # step 自身已支持一次走到一年，不再分段——分段会让跨段的病程、
+        # 衰老与生命周期结算漏掉（第 14 天恰好落在一段末尾时最明显）。
         events: List[str] = []
-        left = hours
-        while left > 1e-6:
-            chunk = min(24.0 * 14, left)
-            left -= chunk
-            out = self.phys.step(st.body, hours=chunk)
+        if hours > 0:
+            out = self.phys.step(st.body, hours=hours)
             events.extend(out.get("events") or [])
         self.phys.couple(st.body, st)
         dx = diagnose(st, self.cfg)

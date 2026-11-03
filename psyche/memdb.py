@@ -111,6 +111,42 @@ def terms(text: str, with_tf: bool = False):
     return counts if with_tf else set(counts)
 
 
+# 同义组：检索是 2-gram 字面匹配，「被辞退」与「被裁员」没有一个字重叠，
+# 于是勾不出来。这里只放高频、且字面确实不通的几组——不做语义模型，
+# 做的是「同一件事的几种叫法」。扩展词的权重打六折，字面命中永远优先。
+_SYNONYMS: Tuple[Tuple[str, ...], ...] = (
+    ("辞退", "裁员", "开除", "解雇", "优化", "下岗", "失业", "离职"),
+    ("难过", "伤心", "低落", "失落", "想哭", "沮丧", "难受"),
+    ("失眠", "睡不着", "熬夜", "通宵", "早醒"),
+    ("分手", "离婚", "散伙", "分开"),
+    ("工资", "薪水", "收入", "报酬", "发薪"),
+    ("住院", "手术", "开刀", "病房", "出院"),
+    ("生病", "病了", "不舒服", "发烧", "感冒"),
+    ("父亲", "爸", "老爸", "爹"),
+    ("母亲", "妈", "老妈", "娘"),
+    ("考试", "期末", "答辩", "面试", "笔试"),
+    ("孩子", "儿子", "女儿", "小孩"),
+    ("猫", "猫猫", "猫咪"),
+)
+
+
+def _syn_terms(query: str) -> List[str]:
+    """把查询里出现的词换成同组的其他说法，返回扩展后的 2-gram。"""
+    q = (query or "").strip()
+    if not q:
+        return []
+    extra: List[str] = []
+    for group in _SYNONYMS:
+        if not any(w in q for w in group):
+            continue
+        for w in group:
+            if w not in q:
+                extra.append(w)
+    if not extra:
+        return []
+    return sorted(terms(" ".join(extra[:24])))
+
+
 def _sig(text: str) -> str:
     return re.sub(r"\s+", "", (text or ""))[:SIG_MAX]
 
@@ -377,19 +413,14 @@ class MemDB:
     # ------------------------------------------------------------------
     # 检索
     # ------------------------------------------------------------------
-    def search(self, umo: str, query: str, limit: int = 6, *,
-               cur_va: float = 0.0, before_turn: Optional[int] = None,
-               layers: Tuple[str, ...] = LAYERS,
-               ) -> List[Tuple[Dict[str, Any], float]]:
-        # 工作记忆也参与检索：上一轮说的话当然能被这句话勾起来。
-        # 「本轮刚说的不算记得」由调用方用 before_turn 排除，不靠层级。
-        q = terms(query)
-        if not q and not query.strip():
-            return []
+    def _term_ids(self, umo: str, q: Any) -> Dict[int, float]:
+        """按词取候选 id 与粗排分。FTS5 优先，不可用时退倒排表。"""
         ids: Dict[int, float] = {}
-
-        if q and self.fts:
-            expr = " OR ".join(f'"{t}"' for t in sorted(q)[:40])
+        terms_list = list(q or [])
+        if not terms_list:
+            return ids
+        if self.fts:
+            expr = " OR ".join(f'"{t}"' for t in sorted(terms_list)[:40])
             try:
                 with self._lock:
                     rows = self._conn.execute(
@@ -403,18 +434,39 @@ class MemDB:
             except Exception:
                 ids = {}
 
-        if not ids and q:
+        if not ids:
             # 兜底：倒排表。取命中词数 × tf 平方根
-            marks = ",".join("?" for _ in q)
+            marks = ",".join("?" for _ in terms_list)
             with self._lock:
                 rows = self._conn.execute(
                     f"SELECT mem_id, COUNT(*) AS n, SUM(tf) AS tf FROM mem_term "
                     f"WHERE umo=? AND term IN ({marks}) GROUP BY mem_id "
                     f"ORDER BY n DESC, tf DESC LIMIT 400",
-                    (umo, *sorted(q)),
+                    (umo, *sorted(terms_list)),
                 ).fetchall()
             for r in rows:
                 ids[int(r["mem_id"])] = float(r["n"]) + 0.3 * math.log1p(float(r["tf"]))
+        return ids
+
+    def search(self, umo: str, query: str, limit: int = 6, *,
+               cur_va: float = 0.0, before_turn: Optional[int] = None,
+               layers: Tuple[str, ...] = LAYERS,
+               ) -> List[Tuple[Dict[str, Any], float]]:
+        # 工作记忆也参与检索：上一轮说的话当然能被这句话勾起来。
+        # 「本轮刚说的不算记得」由调用方用 before_turn 排除，不靠层级。
+        q = terms(query)
+        if not q and not query.strip():
+            return []
+        ids = self._term_ids(umo, q)
+
+        # 字面召回不足时才用同义扩展，且分数打折：扩展是「可能相关」，
+        # 不能顶掉「确实说过这个词」。
+        if len(ids) < max(3, limit) :
+            q2 = _syn_terms(query)
+            if q2:
+                for mid, sc in self._term_ids(umo, q2).items():
+                    if mid not in ids:
+                        ids[mid] = sc * 0.60
 
         if not ids:
             return []

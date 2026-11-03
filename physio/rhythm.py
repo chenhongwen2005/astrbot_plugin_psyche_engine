@@ -38,9 +38,21 @@ def _chrono(body: Dict[str, Any]) -> float:
         return float(body.get("chronotype", 0.0) or 0.0)
 
 
-def phase_hour(hour: float, chrono: float = 0.0) -> float:
-    """把钟点换算成「这个人的生物钟几点」。夜猫子整条曲线后移。"""
-    return (float(hour) - 1.6 * float(chrono or 0.0)) % 24.0
+def shift(body: Dict[str, Any]) -> float:
+    """时差 / 倒班造成的相位偏移（小时）。正数表示生物钟落后于当地时间。"""
+    try:
+        return float(body.get("circadian_shift", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def phase_hour(hour: float, chrono: float = 0.0, jetlag: float = 0.0) -> float:
+    """把钟点换算成「这个人的生物钟几点」。
+
+    夜猫子整条曲线后移；跨时区或倒班再叠一个临时偏移。两者性质不同：
+    前者是一辈子的，后者会在一两周内被拉回来（见 engine 的衰减）。
+    """
+    return (float(hour) - 1.6 * float(chrono or 0.0) - float(jetlag or 0.0)) % 24.0
 
 
 def asleep(body: Dict[str, Any]) -> bool:
@@ -58,7 +70,7 @@ def temp_off(body_or_hour: Any, chrono: float = 0.0) -> float:
     if isinstance(body_or_hour, dict):
         body = body_or_hour
         hour = float(body.get("clock", 0.0) or 0.0) % 24.0
-        ph = phase_hour(hour, _chrono(body))
+        ph = phase_hour(hour, _chrono(body), shift(body))
     else:
         ph = phase_hour(float(body_or_hour), chrono)
     # 余弦：最低点在 TEMP_NADIR，最高点在它对面。
@@ -68,7 +80,7 @@ def temp_off(body_or_hour: Any, chrono: float = 0.0) -> float:
 def hr_off(body: Dict[str, Any]) -> float:
     """心率偏移。睡着时低 9 次，白天在 ±3 之间随生物钟摆动。"""
     hour = float(body.get("clock", 0.0) or 0.0) % 24.0
-    ph = phase_hour(hour, _chrono(body))
+    ph = phase_hour(hour, _chrono(body), shift(body))
     # 白天部分：午后略高、后半夜略低，振幅小
     base = 2.6 * math.cos(2.0 * math.pi * (ph - 16.0) / 24.0)
     if asleep(body):
@@ -83,7 +95,7 @@ def bp_off(body: Dict[str, Any]) -> Tuple[float, float]:
     醒来后的 6~9 点有一段晨峰，收缩压再抬 6。
     """
     hour = float(body.get("clock", 0.0) or 0.0) % 24.0
-    ph = phase_hour(hour, _chrono(body))
+    ph = phase_hour(hour, _chrono(body), shift(body))
     if asleep(body):
         # 睡到后半夜最低（深睡最多），刚躺下那阵还没降下去
         return -12.0, -7.0

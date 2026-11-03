@@ -57,7 +57,16 @@ def ensure(body: Dict[str, Any]) -> Dict[str, Any]:
     if not st.get("bed_pinned"):
         try:
             from . import traits as _TR
-            st["bed_h"] = round((23.0 + 1.6 * _TR.chronotype(body)) % DAY, 2)
+            # 时差/倒班期间就寝点跟着生物钟走，否则「飞了八小时」的人
+            # 仍然按当地 23 点躺下，而他的生物钟才下午三点。
+            jet = 0.0
+            try:
+                from . import rhythm as _RH
+
+                jet = _RH.shift(body)
+            except Exception:
+                jet = float(body.get("circadian_shift", 0.0) or 0.0)
+            st["bed_h"] = round((23.0 + 1.6 * _TR.chronotype(body) + jet) % DAY, 2)
             st["bed_pinned"] = True
         except Exception:
             pass

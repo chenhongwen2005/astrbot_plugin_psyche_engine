@@ -1002,9 +1002,8 @@ D("NR-ENCEPH", "病毒性脑炎", "neuro", base=0.00002,
   labs={"WBC": (1.5, "add"), "CRP": (20.0, "add")},
   sx=["发热", "意识模糊", "抽搐", "行为异常"], acute=True, dur=350.0, fever=0.8,
   mortal=0.01, rare=True, treat=["阿昔洛韦"])
-D("NR-CONCUSSION", "脑震荡", "neuro", base=3e-05, org={"brain": 0.12},
-  sx=["头部外伤后头痛", "短暂失忆", "恶心", "注意力不集中"], acute=True, dur=200.0,
-  pain=0.5)
+# 脑震荡归到外伤管线（INJ-CONCUSSION）。原来这里有一条同名的普通管线条目，
+# base=3e-05 意味着「没撞到头也会脑震荡」——按天抽签抽出来的。
 D("NR-RADICULO", "腰椎间盘突出", "msk", base=0.0012,
   risk={"sedentary": 1.2, "bmi": 0.7, "age": 0.6}, org={"nerve": 0.18},
   sx=["腰痛向臀部下肢放射", "咳嗽时加重", "足趾麻木"], dur=None, pain=0.65,
@@ -1516,6 +1515,48 @@ D("INJ-CHOKE", "呛到", "inj", base=0.0, kind="injury",
   risk={"activity": 0.4}, org={"airway": 0.02},
   sx=["呛得一阵猛咳", "眼泪都出来了", "嗓子眼还有点痒"],
   acute=True, dur=3.0, pain=0.18)
+
+# ---- 中重度外伤 ----
+# 上面那 16 条都是「贴个创可贴继续过日子」。真实生活里还有一种伤：
+# 当时就动不了、要人扶、要拍片子、接下来几周都得记着它。它们的概率
+# 低一个数量级，但一旦发生会改掉这段时间的生活——不能只有轻伤。
+D("INJ-LACERATION", "深割伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.8}, org={"skin": 0.10}, labs={"HGB": (-8.0, "add")},
+  sx=["伤口很深，血按不住", "手指不敢伸直", "得去医院缝"],
+  acute=True, dur=620.0, pain=0.78, treat=["布洛芬"])
+D("INJ-BURN-2ND", "二度烧伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.6}, org={"skin": 0.14},
+  sx=["烫到的地方起了水泡", "疼得整条胳膊发木", "衣服蹭到像火烧"],
+  acute=True, dur=900.0, pain=0.88, treat=["布洛芬"])
+D("INJ-FRACTURE-WRIST", "腕部骨折", "inj", base=0.0, kind="injury",
+  risk={"activity": 1.2}, org={"bone": 0.12, "joint": 0.08},
+  sx=["手腕撑地后立刻肿起来", "一动就钻心疼", "手指发麻"],
+  acute=True, dur=1500.0, pain=0.92, treat=["布洛芬", "对乙酰氨基酚"])
+D("INJ-FRACTURE-ANKLE", "踝部骨折", "inj", base=0.0, kind="injury",
+  risk={"activity": 1.2}, org={"bone": 0.12, "joint": 0.10},
+  sx=["脚踝歪成一个不对的角度", "完全不能承重", "肿得鞋都穿不上"],
+  acute=True, dur=1600.0, pain=0.90, treat=["布洛芬"])
+D("INJ-DISLOC-SHOULDER", "肩关节脱位", "inj", base=0.0, kind="injury",
+  risk={"activity": 1.0}, org={"joint": 0.14},
+  sx=["肩膀塌下去一块", "胳膊抬不起来", "动一下就是撕开一样疼"],
+  acute=True, dur=980.0, pain=0.95, treat=["布洛芬"])
+D("INJ-CONCUSSION", "脑震荡", "inj", base=0.0, kind="injury",
+  risk={"activity": 1.0}, org={"brain": 0.10},
+  sx=["头被撞了，眼前发白", "想吐，看东西发晃", "想不起撞上那一下",
+      "头部外伤后头痛", "注意力集中不起来"],
+  acute=True, dur=520.0, pain=0.62)
+D("INJ-FALL", "跌倒摔伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.9}, org={"bone": 0.05, "muscle": 0.06, "skin": 0.04},
+  sx=["整个人摔在地上", "胯和手肘都磕了", "起来以后腿发软"],
+  acute=True, dur=420.0, pain=0.70, treat=["布洛芬"])
+D("INJ-EYE-CHEM", "眼部化学伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.5}, org={"eye": 0.16},
+  sx=["眼睛溅进东西，刺痛流泪", "睁不开，怕光", "用清水冲了半天还是烧"],
+  acute=True, dur=340.0, pain=0.82)
+D("INJ-DENTAL", "牙外伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.7}, org={"bone": 0.03},
+  sx=["门牙磕掉一角", "吸口气都发酸", "咬东西使不上劲"],
+  acute=True, dur=760.0, pain=0.66, treat=["布洛芬"])
 
 
 # ======================================================================

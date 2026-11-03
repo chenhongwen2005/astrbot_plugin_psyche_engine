@@ -116,6 +116,16 @@ class Dynamics:
         clock = (getattr(st, "body", None) or {}).get("clock")
         if isinstance(clock, (int, float)) and clock > 0:
             return float(clock) % 24.0
+        # 身体关掉之后不能按「每轮 6 小时」自己攒：一轮对话里角色会从
+        # 早上跳到晚上，而墙上的钟一格没走。real 模式直接读北京时间，
+        # 与身体侧同一个时间源；只有 virtual 模式才保留按轮次折算。
+        try:
+            from . import clock as _CLK
+
+            if _CLK.is_real(cfg.get("clock_mode", "real")):
+                return _CLK.bj_hour_float()
+        except Exception:
+            pass
         vh = float(st.meta.get("vhour", 8.0))
         step = float(cfg.get("physio_hours_per_turn", 6.0) or 6.0)
         st.meta["vhour"] = (vh + max(0.25, min(72.0, step))) % 24.0

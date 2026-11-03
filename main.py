@@ -351,6 +351,20 @@ class PsycheEnginePlugin(Star):
                 yield event.plain_result(self.engine.phys_advance(key, h))
                 return
 
+            if sub in ("时差", "倒班", "jetlag"):
+                if not args:
+                    yield event.plain_result("用法：/心理 时差 <小时>，正数向后（往西飞），负数向前（往东飞）")
+                    return
+                try:
+                    h = float(args[0])
+                except ValueError:
+                    yield event.plain_result("要填一个数字，例如 /心理 时差 8")
+                    return
+                st = self.engine.load(key)
+                yield event.plain_result(self.engine.phys.set_shift(st.body, h))
+                self.engine.save(key, st)
+                return
+
             if sub in ("设置", "set"):
                 if len(args) < 2:
                     yield event.plain_result("用法：/心理 设置 <维度> <值>，例如 /心理 设置 alcohol 3")

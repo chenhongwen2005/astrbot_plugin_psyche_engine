@@ -174,6 +174,36 @@ def compute(body: Dict[str, Any], labs: Dict[str, float],
     itch = (1.0 - skin) * 2.4 + max(0.0, (40.0 - hum) / 40.0) * 0.35
     itch = _clip01(itch)
 
+    # ---- 心悸 ----
+    # 不是「心脏有病」，是能感觉到自己在跳：心率快、血容量低、或者
+    # 刚喝完咖啡。发作时人会说「心慌」，而不是报一个 96 bpm。
+    hr = float(vitals.get("HR", 72.0) or 72.0)
+    caff = float(life.get("caffeine", 0.3) or 0.0)
+    palp = _clip01(max(0.0, (hr - 86.0) / 26.0) * (1.0 + 0.35 * min(1.5, caff)))
+
+    # ---- 头晕 ----
+    # 三条通路：血压低（体位性）、贫血、缺水。任意一条够重就有感觉。
+    sbp = float(vitals.get("SBP", 118.0) or 118.0)
+    hgb = labs.get("HGB")
+    hgb_v = float(hgb) if isinstance(hgb, (int, float)) else 140.0
+    diz = _clip01(0.62 * max(0.0, (98.0 - sbp) / 12.0)
+                  + 0.50 * max(0.0, (112.0 - hgb_v) / 24.0)
+                  + 0.40 * max(0.0, (0.72 - water) / 0.30))
+
+    # ---- 耳鸣 ----
+    # 噪声暴露与年龄各占一半，耳器官坏了另算。安静时会自己冒出来。
+    noise = float((body.get("env") or {}).get("noise", 38.0) or 38.0)
+    ear = _organ(body, "ear")
+    tin = _clip01(0.55 * max(0.0, (noise - 58.0) / 26.0)
+                  + 0.45 * max(0.0, (float(body.get("age", 30.0) or 30.0) - 52.0) / 30.0)
+                  + 1.1 * max(0.0, 1.0 - ear))
+
+    # ---- 肌肉酸 ----
+    # 运动量与体能之比。练得少、动得多，第二天就有得受。
+    act = float(life.get("activity", 1.0) or 1.0)
+    fit = float(life.get("fitness", 0.55) or 0.55)
+    sore = _clip01(max(0.0, (act - 1.15) / 0.75) * 0.75 + max(0.0, (0.5 - fit)) * 0.9)
+
     sig: List[Tuple[str, float]] = []
     # 饿和渴都分两档。一档到底的话，要么整天不吭声，要么一开口就是
     # 「饿得叫」——真人是先「有点饿」，再撑一会儿才变成难受。
@@ -191,6 +221,14 @@ def compute(body: Dict[str, Any], labs: Dict[str, float],
         sig.append(("肚子发胀，想上个大号", urg_s))
     if itch >= 0.60:
         sig.append(("身上发痒", itch))
+    if palp >= 0.62:
+        sig.append(("心慌，能觉出心跳", palp))
+    if diz >= 0.58:
+        sig.append(("起身的时候发晕", diz))
+    if tin >= 0.66:
+        sig.append(("耳朵里嗡嗡响", tin))
+    if sore >= 0.62:
+        sig.append(("浑身发酸，像刚练过", sore))
 
     # 睡着的时候这些都感觉不到：饿、渴、痒都在睡梦里，不会变成
     # 「想去趟厕所」那样的念头。唯一能真的把人弄醒的是憋尿，
@@ -208,6 +246,10 @@ def compute(body: Dict[str, Any], labs: Dict[str, float],
         "urge_bowel": round(urg_s, 3),
         "sleepiness": round(sleepiness, 3),
         "itch": round(itch, 3),
+        "palpitation": round(palp, 3),
+        "dizzy": round(diz, 3),
+        "tinnitus": round(tin, 3),
+        "soreness": round(sore, 3),
         "since_meal_h": round(since, 1),
         "signals": sig,
     }

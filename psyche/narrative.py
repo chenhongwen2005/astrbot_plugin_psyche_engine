@@ -796,20 +796,34 @@ def _med_section(st) -> str:
     return "\n".join(lines)
 
 
-def _express_exempt(st, dx) -> bool:
-    """这一轮是否豁免「必须流露」的表达义务。
+# 表达义务的两道分界。低于 _EXEMPT_AT 撤回义务，低于 _MANDATE_AT 走「有就
+# 说、没有别凑」，再往上才是强制。
+_EXEMPT_AT = 0.20
+_MANDATE_AT = 0.42
 
-    只有健康态豁免：没副作用、没镇静、严重度低于轻度阈值、没有主诊断、
-    也没有活跃热点。三个调用点（完整版、压缩版、节标题）必须同源，
-    否则压缩一触发，义务又会从另一条路径回来。
+
+def _pathology_load(st, dx) -> float:
+    """0~1 的连续病理负荷。
+
+    原来判定义务用五个硬条件（有副作用、镇静 ≥0.35、严重度 ≥25、有主诊断、
+    有活跃热点），任意一条跨过就整块翻转。严重度在 23~27 之间来回摆时，
+    注入块会在「不必表露」与「必须表露」之间整段跳变，角色也就忽而克制、
+    忽而倾诉。改成连续量之后中间多出一段「有由头就顺一句，没有就别凑」。
+
+    取各项的最大值而不是加权平均：几项都很轻的时候，平均会把它们抹平，
+    而临床上「有一点副作用 + 一点镇静 + 一点症状」是叠加着难受的。
     """
-    return bool(
-        not (st.meta.get("side_effects") or [])
-        and float(st.meta.get("sedation", 0.0)) < 0.35
-        and dx.severity < 25
-        and not dx.primary
-        and not (st.meta.get("hot") or {})
-    )
+    sev = min(1.0, max(0.0, float(dx.severity)) / 60.0)
+    sed = max(0.0, min(1.0, (float(st.meta.get("sedation", 0.0)) - 0.18) / 0.45))
+    sides = min(1.0, len(st.meta.get("side_effects") or []) / 3.0)
+    primary = 1.0 if dx.primary else 0.0
+    hot = min(1.0, len(st.meta.get("hot") or {}) / 3.0)
+    return max(sev, 0.85 * primary, 0.72 * sed, 0.55 * sides, 0.50 * hot)
+
+
+def _express_exempt(st, dx) -> bool:
+    """这一轮是否豁免表达义务。三个调用点必须同源。"""
+    return _pathology_load(st, dx) < _EXEMPT_AT
 
 
 def _express_section(st, dx: Diagnosis) -> str:
@@ -835,6 +849,18 @@ def _express_section(st, dx: Diagnosis) -> str:
             "- 话头上真有可接的情绪（被逗到、觉得麻烦、懒得展开），让它自然挂在句子上即可；"
             "没有就平实接话。\n"
             "- 平实不等于客服腔：可以有口头语、半截句、跑题一句，但不要凭空造身体不适。"
+        )
+
+    load = _pathology_load(st, dx)
+    if load < _MANDATE_AT:
+        # 中间带：状态够不上「必须说」，但也不该像没事人。给一个不硬凑的写法，
+        # 而不是在豁免与强制之间二选一。
+        return (
+            "- 这一轮状态偏轻，**不强制**表露。对方问起、或者话头正好落在上面，"
+            "就顺一句具体的；没有由头就不必凑一句出来。\n"
+            "- 如果要写，写具体的那一处（哪儿不舒服、因为什么），不要用「有点累」"
+            "「没什么精神」这种放到哪天都成立的句子。\n"
+            "- 平实接话即可，别为了显得有状态而额外加戏。"
         )
 
     lines.append("本轮至少要有一处**由你自己发起**的不适或情绪流露，不能等对方问。"
@@ -1479,6 +1505,7 @@ def render_help() -> str:
         "/心理 找药 <关键词>   按药名或类别找药\n"
         "/心理 停服 <药名>     停掉身体的药\n"
         "/心理 推进 <小时>     只推进身体时间，不产生对话（24=一天）\n"
+        "/心理 时差 <小时>     生物钟整体偏移，模拟跨时区或换班次，之后每天倒回一小时\n"
         "/心理 设置 <维度> <值> 直接改一个生活维度（sleep_h/alcohol/smoking/pm25…）\n"
         "\n"
         "【量表自评 · 让角色自己填】\n"

@@ -322,12 +322,29 @@ def step(body: Dict[str, Any], hours: float, rng: random.Random,
 
     # 围绝经潮热：雌激素撤退导致的体温调节不稳，每次持续几分钟到半小时
     if stage == "perimenopause":
-        p_flash = 0.10 * max(0.0, 1.0 - e2 / 0.5) * min(1.0, dh * 4.0)
-        if rng.random() < p_flash:
-            r["hot_flash"] = 1.0
+        # 潮热是连续曲线，不是掷骰子。强度跟着雌激素掉的程度走：E2 从
+        # 0.52 掉到 0.10 的过程中，潮热从偶发变成每天几次。
+        # 原来写成「每小时 10% 概率置满」，结果是随机开关——同一个人
+        # 可能一个月没动静，也可能一晚上十次，与激素水平无关。
+        depth = max(0.0, min(1.0, (0.52 - float(e2)) / 0.42))
+        hour = float(body.get("clock", 0.0) or 0.0) % 24.0
+        # 不发热的底色：激素低本身有点烘热，但到不了「一阵出汗」的程度
+        base = 0.30 * depth
+        # 「一阵」是脉冲，不是正弦慢波。周期 6 小时的余弦取四次幂，
+        # 峰窄谷宽：一天四次，每次一两小时，与潮热的发作形态一致。
+        # 周期取 6 而不是 5.5：采样是按小时的，非整数周期会让峰落在
+        # 两个采样点之间，一天只捕到一两次。
+        pulse = max(0.0, math.cos(2.0 * math.pi * (hour - 2.0) / 6.0)) ** 4
+        # 夜间与傍晚加重：凌晨两点那一轮最难受，下午三点左右最轻
+        diurnal = 0.55 + 0.45 * math.cos(2.0 * math.pi * (hour - 2.0) / 24.0)
+        target = max(0.0, min(1.0, base + depth * 0.85 * pulse * diurnal))
+        cur_flash = float(r.get("hot_flash", 0.0) or 0.0)
+        # 二十来分钟烘起来、半小时退下去。注意 dh 的单位是「天」：
+        # 这里 0.018 天 ≈ 26 分钟，0.012 天 ≈ 17 分钟。
+        tau = 0.018 if target > cur_flash else 0.012
+        r["hot_flash"] = round(cur_flash + (target - cur_flash) * (1.0 - math.exp(-dh / tau)), 3)
+        if target > 0.72 and cur_flash <= 0.72:
             events.append("hot_flash")
-        else:
-            r["hot_flash"] = max(0.0, float(r.get("hot_flash", 0.0)) - 1.5 * dh)
     else:
         r["hot_flash"] = max(0.0, float(r.get("hot_flash", 0.0)) - 1.5 * dh)
 

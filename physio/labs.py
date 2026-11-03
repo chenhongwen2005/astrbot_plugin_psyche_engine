@@ -175,7 +175,11 @@ def _organ_driven(body: Dict[str, Any], labs: Dict[str, float]) -> None:
     labs["Tg"] = 20.0
 
     # ---- 其他内分泌
-    labs["COR_8am"] = 380.0 * (0.35 + 0.65 * adrenal) * (0.85 + 0.3 * B.life(body, "stress"))
+    # 慢性情绪抬皮质醇：连着几周低落的人，早晨那次峰值是偏高的，
+    # 这解释了他为什么「一直很累却睡不着」。
+    labs["COR_8am"] = (380.0 * (0.35 + 0.65 * adrenal)
+                       * (0.85 + 0.3 * B.life(body, "stress"))
+                       * (1.0 + 0.25 * MD.chronic(body)))
     labs["ACTH"] = 30.0 / max(0.30, adrenal)
     labs["ALD"] = 120.0 / max(0.3, kidney)
     labs["RENIN"] = 1.2 * max(0.3, kidney)
@@ -299,6 +303,12 @@ def _apply_conditions(body: Dict[str, Any], labs: Dict[str, float],
     # 炎症对炎症指标与白细胞的回写
     labs["CRP"] = labs.get("CRP", 1.0) + 70.0 * derived["inflammation"]
     labs["hsCRP"] = labs.get("hsCRP", 0.8) + 45.0 * derived["inflammation"]
+    # 慢性情绪的低度炎症：不是感染，是持续应激下的基线抬高，量很小
+    # （hsCRP 抬 1 左右），刚好落在「正常高值」那一段。
+    chronic_mood = MD.chronic(body)
+    if chronic_mood > 0.0:
+        labs["CRP"] += 2.2 * chronic_mood
+        labs["hsCRP"] += 1.4 * chronic_mood
     labs["ESR"] = labs.get("ESR", 8.0) + 45.0 * derived["inflammation"]
     labs["FIB"] = labs.get("FIB", 3.0) + 1.5 * derived["inflammation"]
     labs["DD"] = labs.get("DD", 0.2) + 0.6 * derived["inflammation"]
@@ -438,6 +448,7 @@ def _vitals(body: Dict[str, Any], labs: Dict[str, float],
     # 情绪：生气时太阳穴跳、害怕时心跳快。这是此刻，连体质都不是。
     mf = MD.effects(body)
     hr += mf["hr"]
+    hr += 1.8 * MD.chronic(body)
     # 酒精扩张血管、心率代偿性上升；咖啡因直接推心率。两者叠加时不能
     # 简单相加，取较大的那个再加一半——真实的心率不是加法表。
     try:

@@ -218,14 +218,62 @@ def level(intensity: float) -> str:
 # ---------------------------------------------------------------------------
 # 演化
 # ---------------------------------------------------------------------------
+# 否定词：出现在命中词前面两个字符内，就把这一处的权重压下去。
+# 「我不难过」「没什么好怕的」在词表里会被读成难过与害怕。
+_NEGATORS = ("不", "没", "别", "无", "非", "哪有", "才不", "算不上")
+
+# 反讽/阴阳怪气。词表读字面，「呵呵，真好啊」会被算成正向。
+_IRONIC = ("呵呵", "才怪", "说的也是", "真好笑", "好好好", "真行", "行吧",
+           "你开心就好", "随便吧", "我谢谢你", "厉害厉害")
+
+# 主体判定用的代词
+_SELF = ("我", "俺", "咱", "自己")
+_OTHER = ("你", "您", "他", "她", "他们", "她们", "别人", "人家")
+
+
+def _subject(text: str) -> float:
+    """这句话在说谁。
+
+    词表兜底的毛病是只看字面：「他被裁员了，太惨了」会被算成角色自己
+    低落，「你是不是有病」会被算成角色被骂。这里按人称给一个系数：
+    说的是别人，情绪冲击打折；说的是自己，全额。
+    """
+    has_self = any(w in text for w in _SELF)
+    has_other = any(w in text for w in _OTHER)
+    if has_self and has_other:
+        return 0.85          # 「你让我很烦」：仍然是冲着自己来的
+    if has_other:
+        return 0.35          # 纯转述别人
+    return 1.0 if has_self else 0.70
+
+
+def _negated(text: str, kw: str, span: int = 2) -> bool:
+    i = text.find(kw)
+    if i < 0:
+        return False
+    head = text[max(0, i - span):i]
+    return any(n in head for n in _NEGATORS)
+
+
 def _lexicon_spike(e: Dict[str, float], text: str) -> List[str]:
     """词表兜底：命中哪类就算哪类，不给复合。返回命中的情感键。"""
     s = text or ""
     if not s:
         return []
+    subj = _subject(s)
+    ironic = any(w in s for w in _IRONIC)
     best_key, best = None, 0.0
     for emo, words in LEXICON.items():
-        score = sum(w for kw, w in words if kw in s)
+        score = 0.0
+        for kw, w in words:
+            if kw not in s:
+                continue
+            # 否定：这一处打三折，但不归零——「我不难过」本身说明有事
+            score += w * (0.30 if _negated(s, kw) else 1.0)
+        # 反讽：正向词不算数，负向词反而更重
+        if ironic:
+            score *= 0.45 if emo in ("joy", "tenderness") else 1.15
+        score *= subj
         if score > best:
             best_key, best = emo, score
     relief = sum(w for kw, w in _RELIEF if kw in s)

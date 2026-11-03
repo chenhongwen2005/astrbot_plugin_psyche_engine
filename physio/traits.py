@@ -81,11 +81,80 @@ def ensure(body: Dict[str, Any]) -> Dict[str, float]:
     return fresh
 
 
+def drift_of(body: Dict[str, Any], key: str) -> float:
+    """体质被经历改写的那一部分。与 seed 基线分开存，两者相加才是当前值。"""
+    d = body.get("traits_drift")
+    if not isinstance(d, dict):
+        return 0.0
+    try:
+        return float(d.get(key, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def get(body: Dict[str, Any], key: str, default: float = 0.0) -> float:
     try:
-        return float(ensure(body).get(key, default))
+        return float(ensure(body).get(key, default)) + drift_of(body, key)
     except Exception:
         return float(default)
+
+
+def step(body: Dict[str, Any], hours: float) -> None:
+    """长期经历会把「底子」磨动一点。
+
+    原来体质是一辈子不动的常数。这在两个月里看不出问题，但练了三年的人
+    静息心率还是当初那个数，就说不通了：有氧训练压低静息心率是这一层
+    最确定的一件事。同理，慢性疼痛会把痛觉敏感度往上调（中枢敏化）。
+
+    改动很慢（以周计），幅度也有限（心率最多 -6，痛敏最多 +0.30），
+    不会盖过 seed 带来的人格差异——「这个人」还是原来那个人，只是老了几岁、
+    练了几年。
+    """
+    if hours <= 0:
+        return
+    weeks = float(hours) / (24.0 * 7.0)
+    if weeks <= 0:
+        return
+    life = body.get("life") or {}
+    d = body.setdefault("traits_drift", {})
+
+    # 体能：0.55 是常态，练到 0.9 差不多是常年运动的人
+    fit = float(life.get("fitness", 0.55) or 0.55)
+    tgt_hr = -6.0 * max(0.0, min(1.0, (fit - 0.55) / 0.35))
+    cur = float(d.get("hr_off", 0.0) or 0.0)
+    d["hr_off"] = round(cur + (tgt_hr - cur) * (1.0 - _exp(-weeks / 26.0)), 3)
+
+    # 慢性疼痛：有长期疼痛的病在身，痛敏往上走
+    try:
+        from .diseases import DISEASES as _DS
+
+        chronic_pain = 0
+        for c in body.get("conditions") or []:
+            spec = _DS.get(c.get("code", "")) or {}
+            # 只算「长期、以疼痛为主」的病。dur is None 在这一套目录里同时
+            # 罩着心梗、主动脉夹层这类急症（它们也疼，也留着不回），把
+            # 它们计入会让一次心梗变成三年的痛觉敏化。急性的一律排除。
+            if spec.get("acute"):
+                continue
+            if spec.get("dur") is None and float(spec.get("pain", 0.0) or 0.0) >= 0.4:
+                if float(c.get("sev", 0.0) or 0.0) > 0.1:
+                    chronic_pain += 1
+    except Exception:
+        chronic_pain = 0
+    tgt_pain = 0.30 * min(1.0, chronic_pain / 2.0)
+    cur = float(d.get("pain_sens", 0.0) or 0.0)
+    d["pain_sens"] = round(cur + (tgt_pain - cur) * (1.0 - _exp(-weeks / 40.0)), 3)
+
+    # 枯了就清掉，别让 drift 字典无限长
+    for k in list(d):
+        if abs(float(d[k] or 0.0)) < 1e-4:
+            d.pop(k, None)
+
+
+def _exp(x: float) -> float:
+    import math
+
+    return math.exp(-abs(x))
 
 
 def chronotype(body: Dict[str, Any]) -> float:

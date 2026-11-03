@@ -56,6 +56,17 @@ BASE: Dict[str, float] = {
     "ENT-EPISTAXIS": 0.00008,
     "INJ-SUNBURN": 0.00008,
     "INJ-STING": 0.00008,
+    # 中重度：低一个数量级。年化之后大约是「一年一两次」的量级，
+    # 各自还要乘情境因子（运动、疲劳、年龄）才会有明显上升。
+    "INJ-FALL": 0.0000060,
+    "INJ-LACERATION": 0.0000040,
+    "INJ-BURN-2ND": 0.0000030,
+    "INJ-FRACTURE-WRIST": 0.0000020,
+    "INJ-FRACTURE-ANKLE": 0.0000015,
+    "INJ-CONCUSSION": 0.0000015,
+    "INJ-DENTAL": 0.0000015,
+    "INJ-DISLOC-SHOULDER": 0.0000010,
+    "INJ-EYE-CHEM": 0.0000008,
 }
 
 # 每个模板受哪些因子影响
@@ -76,7 +87,25 @@ FACTORS: Dict[str, tuple] = {
     "ENT-EPISTAXIS": ("dry",),
     "INJ-SUNBURN": ("outdoor", "sun"),
     "INJ-STING": ("outdoor", "warm"),
+    # 中重度
+    "INJ-FALL": ("dense", "clumsy", "age"),
+    "INJ-LACERATION": ("cook", "clumsy"),
+    "INJ-BURN-2ND": ("cook", "clumsy"),
+    "INJ-FRACTURE-WRIST": ("sport", "dense", "age"),
+    "INJ-FRACTURE-ANKLE": ("sport", "age"),
+    "INJ-CONCUSSION": ("sport", "dense", "clumsy"),
+    "INJ-DENTAL": ("sport", "clumsy"),
+    "INJ-DISLOC-SHOULDER": ("sport", "age"),
+    "INJ-EYE-CHEM": ("chores",),
 }
+
+
+# 一上来就是重伤的那几条，初值另算
+_SEVERE = frozenset({
+    "INJ-LACERATION", "INJ-BURN-2ND", "INJ-FRACTURE-WRIST",
+    "INJ-FRACTURE-ANKLE", "INJ-DISLOC-SHOULDER", "INJ-CONCUSSION",
+    "INJ-FALL", "INJ-EYE-CHEM", "INJ-DENTAL",
+})
 
 
 def _clip(v: float, lo: float, hi: float) -> float:
@@ -186,7 +215,11 @@ def _sev0(body: Dict[str, Any], code: str, c: Dict[str, float], rng) -> float:
         base += 0.22 * min(1.0, c["fatigue"]) + 0.18 * min(1.0, c["alc"])
     if code in ("ENT-EPISTAXIS", "INJ-CHOKE", "INJ-PAPER"):
         base *= 0.7
-    return round(_clip(base, 0.10, 0.72), 3)
+    # 中重度伤一上来就重：骨折、脱位、二度烧伤不是「刚开始有点疼」
+    if code in _SEVERE:
+        base = 0.56 + rng.uniform(0.0, 0.22)
+        base += 0.10 * min(1.0, c["alc"]) + 0.08 * _clip((c["age"] - 50.0) / 40.0, 0.0, 1.0)
+    return round(_clip(base, 0.10, 0.90), 3)
 
 
 def _inflict(body: Dict[str, Any], code: str, c: Dict[str, float],
@@ -224,6 +257,15 @@ def _detail(code: str) -> str:
         "INJ-SUNBURN": "晒过头了",
         "INJ-STING": "被虫子蜇了",
         "INJ-CHOKE": "呛了一下",
+        "INJ-LACERATION": "切东西时割得很深，血止不住",
+        "INJ-BURN-2ND": "被热水泼到，起了一片泡",
+        "INJ-FRACTURE-WRIST": "摔的时候用手撑地，手腕折了",
+        "INJ-FRACTURE-ANKLE": "落地时脚踝别断了一样",
+        "INJ-DISLOC-SHOULDER": "胳膊被拽脱了臼",
+        "INJ-CONCUSSION": "头撞到了，好一会儿缓不过来",
+        "INJ-FALL": "脚下一滑，整个人摔在地上",
+        "INJ-EYE-CHEM": "有东西溅进眼睛，冲了半天",
+        "INJ-DENTAL": "磕到牙，崩掉一块",
     }.get(code, "受了点外伤")
 
 

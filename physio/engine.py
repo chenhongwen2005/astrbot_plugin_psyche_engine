@@ -71,12 +71,45 @@ class Physiology:
         IO.ensure(body)
         TR.ensure(body)
         hours = float(self.hours_per_turn if hours is None else hours)
-        hours = max(0.0, min(24.0 * 14, hours))
+        # 上限一年。逐小时循环跑满 8760 步实测 0.5 s 上下，不需要更粗的
+        # 聚合；原来卡在 14 天，调用方只能自己分段，段与段之间会漏掉
+        # 跨段的病程与衰老结算。
+        hours = max(0.0, min(24.0 * 365, hours))
         events: List[str] = []
 
-        remaining = hours
+        # 病程与发病必须跟着时间走，不能整段一起结算。
+        # 原写法是「先跑完整段生活，再一次性算病程与抽签」：段末抽中的病
+        # 拿到 sev=0.06 后就没人管了，于是一次推一年会在病历上留下十几个
+        # 刚起病的条目，而它们本来早该痊愈。按天结算之后，发病有真实时点，
+        # 病程在同一个循环里推进，该好的会好。
+        left = hours
+        while left > 1e-9:
+            block = min(DAY, left)
+            left -= block
+            self._run_block(body, block, events)
+            self._recover_shift(body, block)
+            # 体质漂移跟着时间走：练了几年的人静息心率该下来，长期疼痛的人
+            # 痛敏该上去。算在按天的循环里，长程推进才看得到。
+            TR.step(body, block)
+            MD.step_chronic(body, block)
+            self._conditions(body, block, events)
+            if self.enable_onset:
+                self._onset(body, block, events)
+
+        # 衰老先于器官与病程：年龄变了，器官基线、发病窗口、体能天花板
+        # 这一轮就该按新年龄算，不能等到下一次 step 才生效。
+        AG.step(body, hours, events)
+        self._organs(body, hours)
+        self._refresh(body)
+        return {"events": events, "dead": bool(body.get("dead"))}
+
+    def _run_block(self, body: Dict[str, Any], hours: float,
+                   events: List[str]) -> None:
+        """把一段时间按整点切开推进生活层（不碰病程）。"""
+        remaining = float(hours)
         guard = 0
-        while remaining > 1e-9 and guard < 400:
+        guard_max = int(hours) + 8
+        while remaining > 1e-9 and guard < guard_max:
             guard += 1
             cur = float(body.get("clock", 0.0) or 0.0)
             nxt = math.floor(cur) + 1.0
@@ -90,15 +123,31 @@ class Physiology:
             remaining -= chunk
             self._advance_hour(body, chunk, events, judge=judge)
 
-        # 衰老先于器官与病程：年龄变了，器官基线、发病窗口、体能天花板
-        # 这一轮就该按新年龄算，不能等到下一次 step 才生效。
-        AG.step(body, hours, events)
-        self._organs(body, hours)
-        self._conditions(body, hours, events)
-        if self.enable_onset:
-            self._onset(body, hours, events)
-        self._refresh(body)
-        return {"events": events, "dead": bool(body.get("dead"))}
+    def _recover_shift(self, body: Dict[str, Any], hours: float) -> None:
+        """倒时差：一天挪一小时左右，与真实生理的重合速度接近。"""
+        sh = float(body.get("circadian_shift", 0.0) or 0.0)
+        if not sh:
+            return
+        move = min(abs(sh), max(0.0, float(hours)) / 24.0 * 1.0)
+        sh = sh - math.copysign(move, sh)
+        body["circadian_shift"] = round(sh, 3) if abs(sh) > 0.01 else 0.0
+
+    def set_shift(self, body: Dict[str, Any], hours: float) -> str:
+        """跨时区或换班次：把生物钟整体挪过去，之后靠时间自己倒回来。"""
+        body = B.ensure_body(body)
+        h = max(-12.0, min(12.0, float(hours)))
+        body["circadian_shift"] = round(h, 2)
+        # 就寝点跟着走：不然生物钟已经挪了，人还按原来的点躺下
+        st = body.get("sleep")
+        if isinstance(st, dict):
+            # bed_pinned 也要清：只清 bed_h 的话，ensure 会认为「就寝点
+            # 已经定过了」，生物钟挪了而入睡点不动。
+            st.pop("bed_h", None)
+            st.pop("bed_pinned", None)
+        days = max(1, int(round(abs(h))))
+        side = "晚" if h > 0 else "早"
+        return (f"生物钟已整体{side}移 {abs(h):.1f} 小时。"
+                f"接下来大约 {days} 天会逐渐倒回来，期间入睡点、体温与血压曲线都跟着偏。")
 
     def add_med(self, body: Dict[str, Any], name: str, dose: float = 1.0) -> str:
         drug = name if name in DRUGS else None
@@ -691,6 +740,14 @@ class Physiology:
             st.bio["serotonin"] = max(0.05, st.bio.get("serotonin", 0.55) - 0.06 * dys)
             st.bio["bdnf"] = max(0.05, st.bio.get("bdnf", 0.5) - 0.05 * dys)
             st.neuro["sleep_pressure"] = min(1.0, st.neuro.get("sleep_pressure", 0.3) + 0.05 * dys)
+        # 慢性情绪也走这条路：连着几周低落会把 IL-6 与皮质醇顶上去，
+        # 于是「心情不好」在症状与诊断里留下痕迹，而不是两条平行叙事。
+        chr_load = MD.chronic(body)
+        if chr_load > 0.30:
+            pull = min(1.0, (chr_load - 0.30) / 0.70)
+            st.bio["il6"] = min(1.0, st.bio.get("il6", 0.2) + 0.16 * pull)
+            st.bio["cortisol"] = min(1.0, st.bio.get("cortisol", 0.35) + 0.14 * pull)
+
         t3 = (body.get("labs") or {}).get("FT3")
         if t3 is not None:
             # 精神侧 t3 的常模是 0.50±0.10（无量纲），不能把化验值直接除个数就写进去。
