@@ -27,6 +27,11 @@ import math
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import cycle as CY
+from . import gestation as GE
+from . import gonadal as GON
+from . import postpartum as PP
+
 DAY = 24.0
 
 
@@ -74,8 +79,28 @@ def new_state(body: Dict[str, Any]) -> Dict[str, Any]:
         "pregnant": False,
         "gest_week": 0.0,
         "parity": 0,
+        # 产后按天推进。None 表示「没有在产后」，0.0 表示「刚生完当天」，
+        # 两者必须分开——否则新建的角色会被判成产后第 0 天。
+        "postpartum_days": None,
         "postpartum_week": 0.0,
         "lactating": False,
+        "lochia": 0.0,
+        "lochia_kind": "",
+        "afterpains": 0.0,
+        "wound": 0.0,
+        "wound_kind": "",
+        "engorgement": 0.0,
+        "nipple_crack": 0.0,
+        "mastitis": 0.0,
+        "ppd": 0.0,
+        "pelvic": 0.0,
+        "hair_loss": 0.0,
+        "cycle_resumed": False,
+        "quickening": False,
+        "braxton": 0.0,
+        "weight_gain": 0.0,
+        "blood_debt": 0.0,
+        "anovulatory": False,
         "hot_flash": 0.0,
         "flow": 0.0,         # 经量 0~1
         "dysmenorrhea": 0.0,  # 痛经强度 0~1
@@ -96,7 +121,12 @@ def ensure(body: Dict[str, Any]) -> Dict[str, Any]:
         body["repro"] = r
     # 相位要在这里算一次：hours=0 的 step（首次初始化、只读查询）不会走
     # _advance_hour，phase 会一直是空串，摘要那行就成了「月经周期第 5 天·」。
-    if not r.get("pregnant") and r.get("stage") in ("reproductive", "perimenopause"):
+    # 产后与哺乳期不能算：那段时间周期本来就停着，算出来会凭空多一个相位。
+    GON.ensure(body)
+    in_pp = (r.get("postpartum_days") is not None
+             and str(r.get("phase") or "") in ("postpartum", "lactating"))
+    if (not r.get("pregnant") and not in_pp
+            and r.get("stage") in ("reproductive", "perimenopause")):
         L = float(r.get("cycle_len", 28) or 28)
         d = float(r.get("cycle_day", 1.0) or 1.0)
         e2, p4, lh, fsh = _hormones(d, L)
@@ -105,7 +135,18 @@ def ensure(body: Dict[str, Any]) -> Dict[str, Any]:
         if r["phase"] == "menstrual":
             r["flow"] = max(0.0, 1.0 - (d - 1.0) / 5.0)
             r["dysmenorrhea"] = max(0.0, 1.0 - (d - 1.0) / 3.0)
+        else:
+            # 走出经期就把经量与痛经归零。不归零的话，只要有人读一次状态
+            # （体检、注入、摘要），上个月那几天的量会被一直带着走。
+            r["flow"] = 0.0
+            r["dysmenorrhea"] = 0.0
         r["temp_shift"] = round(0.32 * (p4 / 0.75) if p4 > 0.2 else 0.0, 3)
+    elif str(r.get("sex") or "m") == "m":
+        # 男性没有相位，但激素水平要按当前年龄与时刻算一次。不算是 0.60
+        # 常数：只读查询（体检、注入）就会把二十岁和六十岁算成同一个人。
+        # 注意这里必须是 elif：妊娠、产后、绝经后的女性也会走到 else 那条
+        # 路上，把她们按男性重算一遍会把相位改成 adult，下一步又算成月经期。
+        _step_male(body, r, 0.0)
     return r
 
 
@@ -200,17 +241,38 @@ def step(body: Dict[str, Any], hours: float, rng: random.Random,
             events.append("menopause")
             r["pregnant"] = False
 
+    # 性腺轴与第二性征不分阶段，任何时候都在走
+    GON.step(body, hours, rng, events)
+
     if r.get("pregnant"):
-        _step_pregnancy(body, r, dh, events)
+        GE.step(body, r, dh, rng, events)
         return
 
-    if float(r.get("postpartum_week", 0.0)) > 0.0:
-        r["postpartum_week"] = max(0.0, float(r["postpartum_week"]) + dh / 7.0)
-        if r["postpartum_week"] <= 0.0:
-            r["lactating"] = False
+    # 产后按天推进。原来这里写的是 `postpartum_week + dh/7` 然后判断
+    # `<= 0`——一个永远加、永远不为负的量，判它小于零当然永不成立，
+    # 于是哺乳标记一辈子清不掉，六周恢复期也从来没结束过。
+    if (r.get("postpartum_days") is not None
+            and str(r.get("phase") or "") in ("postpartum", "lactating")):
+        PP.step(body, r, dh, rng, events)
+        CY.step(body, hours, rng, events)
+        if str(r.get("phase") or "") == "postpartum":
+            return
+        # 哺乳期继续往下走，但周期被闭经挡住（见下面的 lactating 分支）
 
     if r.get("sex") != "f":
         _step_male(body, r, dh)
+        return
+
+    # 哺乳期闭经：高泌乳素把 GnRH 压住，周期不转。这不是「月经不调」，
+    # 是正常的生理性停经——不处理的话，产褥期会凭空多出一个周期相位。
+    if str(r.get("phase") or "") == "lactating" and not r.get("cycle_resumed"):
+        r["e2"] = 0.18
+        r["p4"] = 0.05
+        r["lh"] = 0.10
+        r["fsh"] = 0.30
+        r["flow"] = 0.0
+        r["dysmenorrhea"] = 0.0
+        r["temp_shift"] = 0.0
         return
 
     stage = r.get("stage")
@@ -269,6 +331,9 @@ def step(body: Dict[str, Any], hours: float, rng: random.Random,
     else:
         r["hot_flash"] = max(0.0, float(r.get("hot_flash", 0.0)) - 1.5 * dh)
 
+    # 失血债、无排卵周期：这两件事跨周期累积，必须每步都走
+    CY.step(body, hours, rng, events)
+
 
 
 def _step_male(body: Dict[str, Any], r: Dict[str, Any], dh: float) -> None:
@@ -288,49 +353,8 @@ def _step_male(body: Dict[str, Any], r: Dict[str, Any], dh: float) -> None:
     r["dysmenorrhea"] = 0.0
 
 
-def _step_pregnancy(body: Dict[str, Any], r: Dict[str, Any], dh: float,
-                    events: List[str]) -> None:
-    r["gest_week"] = float(r.get("gest_week", 0.0)) + dh / 7.0
-    w = r["gest_week"]
-    # hCG：5 周起升，8~10 周峰值，之后回落
-    if w < 4:
-        r["hcg"] = 0.0
-    elif w < 10:
-        r["hcg"] = min(1.0, (w - 4) / 6.0)
-    else:
-        r["hcg"] = max(0.05, 1.0 - (w - 10) / 22.0)
-    r["e2"] = min(1.0, 0.45 + 0.006 * w)
-    r["p4"] = min(1.0, 0.55 + 0.010 * w)
-    r["flow"] = 0.0
-    r["dysmenorrhea"] = 0.0
-    r["temp_shift"] = 0.4          # 孕期持续高温相
-    r["phase"] = "pregnant"
-    if 6 <= w < 13:
-        r["nausea"] = 1.0 - abs(w - 9.0) / 4.0
-    else:
-        r["nausea"] = max(0.0, float(r.get("nausea", 0.0)) - 0.3 * dh)
-    if w >= 40.0:
-        _deliver(body, r, events)
-
-
-def _deliver(body: Dict[str, Any], r: Dict[str, Any], events: List[str]) -> None:
-    """到 40 周就分娩。不做主动终止，也不做并发症随机。"""
-    r["pregnant"] = False
-    r["parity"] = int(r.get("parity", 0)) + 1
-    r["gest_week"] = 0.0
-    r["hcg"] = 0.0
-    r["postpartum_week"] = 6.0
-    r["lactating"] = True
-    r["nausea"] = 0.0
-    r["temp_shift"] = 0.0
-    r["cycle_day"] = 1.0
-    r["phase"] = "postpartum"
-    r["baby_blues"] = 1.0          # 产后两周内的情绪低落，多数人会有
-    events.append("childbirth")
-    # 分娩失血：血红蛋白掉一截，靠后续造血慢慢补
-    organs = body.get("organs") or {}
-    organs["marrow"] = max(0.2, float(organs.get("marrow", 1.0)) - 0.02)
-    body["_postpartum_blood_loss"] = 1.0
+# 妊娠与分娩的推进已经搬到 physio/gestation.py：四十周里每个阶段
+# 的症状窗口都不一样，塞在这个文件里会把周期逻辑挤得看不见。
 
 
 def _step_bone_loss(body: Dict[str, Any], r: Dict[str, Any], dh: float) -> None:
@@ -347,12 +371,12 @@ def _step_bone_loss(body: Dict[str, Any], r: Dict[str, Any], dh: float) -> None:
 # ----------------------------------------------------------------------
 def modulate(body: Dict[str, Any], labs: Dict[str, float],
              vitals: Dict[str, float], derived: Dict[str, Any]) -> None:
-    """把周期相位、妊娠、产后落到已有指标上。"""
+    """把周期相位、妊娠、产后、男性特征落到已有指标上。"""
     r = body.get("repro")
     if not isinstance(r, dict) or not r:
         return
 
-    # 基础体温
+    # 基础体温：排卵后抬 0.3℃，孕期持续高温相。这是唯一能自己量到的相位信号
     shift = float(r.get("temp_shift", 0.0) or 0.0)
     if shift:
         vitals["TEMP"] = float(vitals.get("TEMP", 36.6)) + shift
@@ -362,29 +386,19 @@ def modulate(body: Dict[str, Any], labs: Dict[str, float],
     if dys > 0.05:
         vitals["PAIN"] = min(10.0, float(vitals.get("PAIN", 0.0)) + 3.2 * dys)
 
-    # 经期失血：经量大的那几天血红蛋白会掉，长期量大则是缺铁性贫血的入口
+    # 经期失血：当下的量掉一点，长期的累积债由 cycle 那边算
     flow = float(r.get("flow", 0.0) or 0.0)
     if flow > 0.05 and "HGB" in labs:
         labs["HGB"] = max(70.0, float(labs["HGB"]) - 4.0 * flow)
 
-    # 妊娠：血容量扩张把血红蛋白稀释下去，这是生理性的，不是贫血
+    # 各模块各管一段：周期的经前水肿与失血债、孕期的稀释与血压、
+    # 产后的失血与炎性发热、男性随年龄的那点变化
+    CY.modulate(body, labs, vitals, derived)
     if r.get("pregnant"):
-        w = float(r.get("gest_week", 0.0) or 0.0)
-        dil = 0.0 if w < 10 else min(12.0, (w - 10) * 0.45)
-        if "HGB" in labs:
-            labs["HGB"] = max(85.0, float(labs["HGB"]) - dil)
-        vitals["HR"] = float(vitals.get("HR", 72)) + min(14.0, w * 0.35)
-        naus = float(r.get("nausea", 0.0) or 0.0)
-        if naus > 0.2:
-            derived["pregnancy_nausea"] = round(naus, 2)
-
-    # 产后失血与哺乳消耗
-    if float(r.get("postpartum_week", 0.0) or 0.0) > 0.0:
-        if body.pop("_postpartum_blood_loss", 0):
-            if "HGB" in labs:
-                labs["HGB"] = max(75.0, float(labs["HGB"]) - 12.0)
-        if r.get("lactating") and "HGB" in labs:
-            pass
+        GE.modulate(body, labs, vitals, derived)
+    else:
+        PP.modulate(body, labs, vitals, derived)
+    GON.modulate(body, labs, vitals, derived)
 
 
 # ----------------------------------------------------------------------
@@ -395,19 +409,26 @@ def summary(body: Dict[str, Any]) -> str:
     r = body.get("repro")
     if not isinstance(r, dict) or not r:
         return ""
+    if r.get("pregnant"):
+        return GE.summary(body)
+    # 男性没有相位可报。性腺轴水平只进体检卡片，不进注入块——
+    # 那是内分泌读数，不是「此刻身上怎么了」，占篇幅没有意义。
     if r.get("sex") != "f":
-        age = float(body.get("age", 30.0) or 30.0)
-        if age >= 45:
-            return "性腺功能随年龄缓慢下降"
+        return ""
+    # 哺乳与月经可以同时存在：产后半年恢复周期是常事，两边都要说
+    pp = PP.summary(body)
+    cyc = _cycle_summary(body)
+    if pp and cyc:
+        return pp + "·" + cyc
+    return pp or cyc
+
+
+def _cycle_summary(body: Dict[str, Any]) -> str:
+    r = body.get("repro") or {}
+    # 产后与哺乳期没有「周期第几天」这回事，硬算会得到「月经第 1 天·产后期」
+    if str(r.get("phase") or "") in ("pregnant", "postpartum", "lactating"):
         return ""
     stage = r.get("stage")
-    if r.get("pregnant"):
-        w = int(float(r.get("gest_week", 0.0)))
-        naus = float(r.get("nausea", 0.0) or 0.0)
-        extra = "，孕吐明显" if naus > 0.35 else ""
-        return f"妊娠第 {w} 周{extra}"
-    if stage == "postpartum":
-        return "产后恢复期" + ("，哺乳中" if r.get("lactating") else "")
     if stage == "prepuberty":
         return "青春期前"
     if stage == "postmenopause":
@@ -422,23 +443,46 @@ def summary(body: Dict[str, Any]) -> str:
     tail = ""
     if r.get("phase") == "menstrual":
         tail = "，有经量" if float(r.get("flow", 0)) > 0.1 else ""
+    elif r.get("anovulatory"):
+        tail = "，这个月没排卵"
     return f"月经周期第 {day} 天·{phase}{tail}"
 
 
 def symptoms(body: Dict[str, Any]) -> List[Tuple[str, float]]:
-    """周期相关的非特异不适，供 symptoms() 合并。"""
+    """周期、妊娠、产后、男性各自的不适，合并去重后交给症状表。"""
     r = body.get("repro")
     out: List[Tuple[str, float]] = []
     if not isinstance(r, dict) or not r:
         return out
-    dys = float(r.get("dysmenorrhea", 0.0) or 0.0)
-    if dys > 0.25:
-        out.append(("下腹坠痛、腰酸", min(1.0, dys)))
-    naus = float(r.get("nausea", 0.0) or 0.0)
-    if naus > 0.25:
-        out.append(("恶心、闻不得油烟", min(1.0, naus)))
+
+    # 恶心由 gestation/symptoms 统一给，这里不再重复报一条同义项
     if float(r.get("hot_flash", 0.0) or 0.0) > 0.4:
         out.append(("突然一阵发热出汗", 0.7))
-    if float(r.get("baby_blues", 0.0) or 0.0) > 0.3:
-        out.append(("情绪低落、容易哭", 0.6))
-    return out
+
+    out.extend(CY.symptoms(body))
+    if r.get("pregnant"):
+        out.extend(GE.symptoms(body))
+    else:
+        out.extend(PP.symptoms(body))
+    out.extend(GON.symptoms(body))
+
+    # 同名项合并取强：模块之间可能各报一条「下腹坠痛」
+    merged: Dict[str, float] = {}
+    for name, sev in out:
+        if sev > merged.get(name, 0.0):
+            merged[name] = sev
+    return list(merged.items())
+
+
+def line(body: Dict[str, Any]) -> str:
+    """注入块用一句。生殖状态明显影响当下感受时才说话。"""
+    r = body.get("repro")
+    if not isinstance(r, dict) or not r:
+        return ""
+    if r.get("pregnant"):
+        return GE.line(body)
+    if str(r.get("phase") or "") in ("postpartum", "lactating"):
+        return PP.line(body)
+    if r.get("sex") != "f":
+        return GON.line(body)
+    return CY.line(body)

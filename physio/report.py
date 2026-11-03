@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Tuple
 
 from . import body as B
 from . import energy as _E
+from . import gonadal as _GON
 from . import lifecycle as _LC
 from . import intero as _IO
 from . import traits as _TR
@@ -389,6 +390,11 @@ def render_life(body: Dict[str, Any]) -> str:
     # 体质：同岁同性同体型的两个人，静息心率、睡眠需求、疼痛敏感度都
     # 不一样。不写出来，用户看到「他心率 79」时无从判断这算不算他偏高。
     lines.append(f"体质：{_TR.summary(body)}")
+    # 性腺轴只在体检卡里出现：它是内分泌状态，不是「身上哪儿不舒服」，
+    # 放进注入块会挤掉真正该说的话。
+    gon = _GON.summary(body)
+    if gon:
+        lines.append(f"内分泌：{gon}")
     io = _IO.line(body)
     if io:
         lines.append(f"此刻：{io}")
@@ -462,10 +468,17 @@ def render_block_section(body: Dict[str, Any], max_chars: int = 420) -> str:
                      or float(last.get("hours", 8.0)) < 5.5):
             parts.append("昨晚：" + _SL.describe(last))
 
-    # 周期相位：只有女性角色、且不在妊娠/绝经前才有内容
+    # 生殖状态：相位给坐标（第几天、什么期），line 给感受（经前发胀、
+    # 孕吐、产后胀痛）。两条并成一条，别让它们在注入块里各占一行——
+    # 篇幅是要抢的，多一行就少一行别的。
     lc = _LC.summary(body)
-    if lc:
+    lc_now = _LC.line(body)
+    if lc and lc_now:
+        parts.append(f"{lc}；{lc_now}")
+    elif lc:
         parts.append(lc)
+    elif lc_now:
+        parts.append(lc_now)
 
     # 睡着的时候不报精力。人是躺着的，不是「撑着一口气」——那个说法在
     # 22:30 刚躺下时尤其离谱：今晚才睡了半小时，一整天却是醒着的。

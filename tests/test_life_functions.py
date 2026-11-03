@@ -28,6 +28,9 @@ from physio import aging as AG  # noqa: E402
 from physio import traits as TR  # noqa: E402
 from physio import rhythm as RY  # noqa: E402
 from physio import mind as MD  # noqa: E402
+from physio import cycle as CY  # noqa: E402
+from physio import gonadal as GON  # noqa: E402
+from physio import lifecycle as LC  # noqa: E402
 from physio import sleep as SL  # noqa: E402
 from physio import body as B  # noqa: E402
 from physio import const as C  # noqa: E402
@@ -756,6 +759,178 @@ def test_mind_block_stays_single_line() -> None:
     ok("情绪并进同一条「身上」，不另起一行")
 
 
+# ----------------------------------------------------------------------
+# 生殖与性别差异：月事、妊娠、产后、性腺轴
+# ----------------------------------------------------------------------
+def _female(age: float = 27.0, seed: int = 9):
+    b = B.new_body(sex="f", age=age, seed=seed)
+    b["clock"] = 15.0
+    r = LC.ensure(b)
+    return b, r
+
+
+def test_pms_only_in_luteal_tail() -> None:
+    """经前综合征只在黄体末期出现，卵泡期不该有。"""
+    b, r = _female()
+    L = float(r["cycle_len"])
+    r["cycle_day"] = L - 2.0
+    near = CY.pms(b)["level"]
+    r["cycle_day"] = 7.0
+    far = CY.pms(b)["level"]
+    if near < 0.35:
+        fail(f"月经前两天 PMS 只有 {near:.2f}，经前综合征没出现")
+    if far != 0.0:
+        fail(f"卵泡期不该有 PMS，却是 {far:.2f}")
+    ok(f"PMS 只在黄体末期（经前两天 {near:.2f}，卵泡期 {far:.2f}）")
+
+
+def test_menstrual_symptoms_are_specific() -> None:
+    """经期该有下腹坠痛和腹泻，排卵期不该有。"""
+    b, r = _female()
+    r["cycle_day"] = 2.0
+    LC.ensure(b)                       # 经量与痛经由 ensure 按周期日算出
+    names = [n for n, v in LC.symptoms(b)]
+    if not any("下腹" in n for n in names):
+        fail(f"经期没有下腹症状：{names}")
+    if not any("腹泻" in n for n in names):
+        fail(f"经期没有腹泻（前列腺素同源，真实存在）：{names}")
+    L = float(r["cycle_len"])
+    r["cycle_day"] = max(10.0, L - 14.0)
+    LC.ensure(b)
+    ov = [n for n, v in LC.symptoms(b)]
+    if any("腹泻" in n for n in ov):
+        fail(f"排卵期不该腹泻：{ov}")
+    ok(f"经期症状对相位（经期 {len(names)} 条，排卵期 {len(ov)} 条）")
+
+
+def test_pregnancy_trimesters_differ() -> None:
+    """孕早期与孕晚期的症状不该是同一套。"""
+    b, r = _female(age=29.0)
+    r["pregnant"] = True
+    r["gest_week"] = 9.0
+    early = [n for n, v in LC.symptoms(b)]
+    r["gest_week"] = 34.0
+    late = [n for n, v in LC.symptoms(b)]
+    if not any("嗜睡" in n for n in early):
+        fail(f"孕早期没有嗜睡：{early}")
+    if not any("胃灼热" in n for n in late):
+        fail(f"孕晚期没有胃灼热：{late}")
+    if early == late:
+        fail("孕早期与孕晚期症状完全相同，分期没生效")
+    dup = [n for n in late if late.count(n) > 1]
+    if dup:
+        fail(f"孕晚期症状重复：{set(dup)}")
+    ok(f"孕期症状按分期（早期 {len(early)} 条，晚期 {len(late)} 条，无重复）")
+
+
+def test_pregnancy_delivers_and_enters_postpartum() -> None:
+    """到足月要分娩，并进入产后状态（而不是原地重置）。"""
+    b, r = _female(age=28.0, seed=777)
+    r["pregnant"] = True
+    r["gest_week"] = 39.0
+    e = Physiology({"physio_disease_onset": False})
+    for _ in range(12):
+        e.step(b, hours=24.0)
+        if not r.get("pregnant"):
+            break
+    if r.get("pregnant"):
+        fail("39 周起跑了两周还没分娩")
+    if not (r.get("postpartum_days") is not None and r["postpartum_days"] >= 0.0):
+        fail("分娩后没有进入产后计时")
+    if not r.get("lactating"):
+        fail("分娩后没有进入哺乳状态")
+    if r.get("phase") != "postpartum":
+        fail(f"分娩后相位是 {r.get('phase')}，应为 postpartum")
+    ok(f"足月分娩并进入产后（第 {int(r['postpartum_days'])} 天，哺乳中）")
+
+
+def test_lochia_stages() -> None:
+    """恶露按血性→浆液性→白色→干净推进。"""
+    b, r = _female(age=28.0)
+    r.update({"postpartum_days": 1.0, "phase": "postpartum", "lactating": True})
+    e = Physiology({"physio_disease_onset": False})
+    seen = {}
+    for _ in range(35):
+        e.step(b, hours=24.0)
+        d = int(r.get("postpartum_days") or 0)
+        if d in (1, 7, 20, 30):
+            seen[d] = r.get("lochia_kind") or ""
+    if seen.get(1) != "血性" or seen.get(7) != "浆液性":
+        fail(f"恶露分期不对：{seen}")
+    if seen.get(30) != "":
+        fail(f"产后 30 天恶露还没干净：{seen}")
+    ok(f"恶露按期变化（1 天{seen.get(1)}／7 天{seen.get(7)}／30 天已净）")
+
+
+def test_mastitis_resolves() -> None:
+    """乳腺炎会退。不退的话角色会带着它过完整个哺乳期。"""
+    b, r = _female(age=28.0)
+    r.update({"postpartum_days": 20.0, "phase": "postpartum", "lactating": True,
+              "mastitis": 0.7})
+    e = Physiology({"physio_disease_onset": False})
+    for _ in range(20):
+        e.step(b, hours=24.0)
+        if not r.get("mastitis"):
+            break
+    if float(r.get("mastitis") or 0.0) > 0.05:
+        fail(f"乳腺炎 20 天没退（{r.get('mastitis')}）")
+    ok("乳腺炎会自行消退")
+
+
+def test_lactation_blocks_cycle() -> None:
+    """哺乳期闭经：高泌乳素压住 GnRH，周期不该自己转起来。"""
+    b, r = _female(age=28.0)
+    r.update({"postpartum_days": 30.0, "phase": "lactating", "lactating": True,
+              "cycle_resumed": False, "cycle_day": 1.0})
+    before = float(r["cycle_day"])
+    e = Physiology({"physio_disease_onset": False})
+    for _ in range(3):
+        e.step(b, hours=24.0)
+    if float(r["cycle_day"]) != before:
+        fail(f"哺乳期周期还在走：{before} → {r['cycle_day']}")
+    ok(f"哺乳期闭经（3 天后周期日仍是 {r['cycle_day']}）")
+
+
+def test_baby_blues_clears() -> None:
+    """产后情绪低落两周内消退；两周后还低才算产后抑郁。"""
+    b, r = _female(age=28.0)
+    r.update({"postpartum_days": 20.0, "phase": "postpartum", "lactating": True,
+              "baby_blues": 1.0})
+    e = Physiology({"physio_disease_onset": False})
+    e.step(b, hours=24.0)
+    if float(r.get("baby_blues") or 0.0) > 0.0:
+        fail(f"产后 20 天 baby blues 还没清（{r.get('baby_blues')}）")
+    ok("产后情绪低落两周内消退")
+
+
+def test_gonadal_declines_with_age() -> None:
+    """睾酮随年龄下降，二十几岁与六十岁不该一样。"""
+    young = B.new_body(sex="m", age=25.0, seed=33)
+    old = B.new_body(sex="m", age=62.0, seed=33)
+    for b in (young, old):
+        LC.ensure(b)
+    y = GON.compute(young)["drive"]
+    o = GON.compute(old)["drive"]
+    if not (y > o + 0.08):
+        fail(f"年龄没压低性腺轴（25 岁 {y:.2f} vs 62 岁 {o:.2f}）")
+    ok(f"性腺轴随年龄下降（25 岁 {y:.2f} → 62 岁 {o:.2f}）")
+
+
+def test_gonadal_not_in_block() -> None:
+    """性腺轴是内分泌读数，不进注入块；体检卡里才有。"""
+    b = B.new_body(sex="m", age=50.0, seed=31)
+    LC.ensure(b)
+    e = Physiology({"physio_disease_onset": False})
+    e.refresh(b)
+    block = R.render_block_section(b, max_chars=400)
+    if "性腺轴" in block:
+        fail(f"注入块里出现了内分泌读数：{block[:80]}")
+    card = R.render_life(b)
+    if "性腺轴" not in card:
+        fail("体检卡里没有内分泌一行")
+    ok("性腺轴只出现在体检卡，不进注入块")
+
+
 def test_a_day_says_something() -> None:
     """一整天跑下来，饿、渴、尿意、便意都该真的出现过。
 
@@ -829,6 +1004,16 @@ def main() -> None:
     test_mind_fades_with_hours()
     test_mind_shifts_pain_threshold()
     test_mind_block_stays_single_line()
+    test_pms_only_in_luteal_tail()
+    test_menstrual_symptoms_are_specific()
+    test_pregnancy_trimesters_differ()
+    test_pregnancy_delivers_and_enters_postpartum()
+    test_lochia_stages()
+    test_mastitis_resolves()
+    test_lactation_blocks_cycle()
+    test_baby_blues_clears()
+    test_gonadal_declines_with_age()
+    test_gonadal_not_in_block()
     test_a_day_says_something()
     print(f"\n全部通过（{PASS} 项）。")
 

@@ -144,7 +144,7 @@
     "hint": "默认 6：四轮对话约等于一天。调大后生病与恢复都变快"
   },
   "physio_sex": {
-    "description": "角色生理性别（影响血红蛋白、肌酐、尿酸等参考区间）",
+    "description": "角色生理性别（影响参考区间，以及周期、妊娠、产后等生理进程）",
     "type": "string",
     "default": "m",
     "options": [

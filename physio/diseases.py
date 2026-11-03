@@ -1400,7 +1400,7 @@ D("ON-BREAST", "乳腺癌", "repro", base=0.0001,
   risk={"sex": 2.0, "age": 1.2, "alcohol": 0.8}, org={"skin": 0.2, "bone": 0.2,
                                                       "lungs": 0.15},
   labs={"ALP": (40.0, "add")},
-  sx=["无痛性乳房肿块", "皮肤橘皮样", "乳头溢液"], dur=None, rare=True,
+  sx=["无痛性乳房肿块", "皮肤橘皮样", "乳部异常分泌"], dur=None, rare=True,
   sex="f", mortal=0.0015)
 D("ON-OVARIAN", "卵巢癌", "repro", base=0.00004,
   risk={"sex": 1.0, "age": 1.2}, org={"gonad": 0.4, "gut": 0.2},

@@ -536,13 +536,13 @@ DISORDERS: List[Dict[str, Any]] = [
       curability=0.08, perf="gaming", min_turns=12,
       note="游戏优先于其他生活兴趣，持续 ≥12 个月并造成显著损害"),
 
-    D("6C72", "强迫性性行为障碍", "Compulsive sexual behaviour disorder", "impulse",
+    D("6C72", "强迫性行为障碍", "Compulsive behaviour disorder", "impulse",
       [("ic_compulsive_sexual", 0.95), ("tr_shame", 0.65), ("ma_impulsivity", 0.50),
        ("md_depressed_mood", 0.40)],
       min_n=2, min_sev=0.32,
       profile={"dopamine": 0.6, "prefrontal_control": -0.5},
-      curability=0.06, perf="compulsive_sexual", min_turns=12,
-      note="反复无法控制的性行为，成为生活重心并造成损害"),
+      curability=0.06, perf="compulsive_urge", min_turns=12,
+      note="反复难以控制的行为冲动，成为生活重心并造成损害"),
 
     D("6C73", "间歇性暴怒障碍", "Intermittent explosive disorder", "impulse",
       [("ic_anger_outburst", 0.95), ("pd_rage", 0.80), ("ma_irritability", 0.65),

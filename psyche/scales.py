@@ -113,7 +113,7 @@ _S("YMRS", zh="杨氏躁狂评定量表（11 条）", en="Young Mania Rating Sca
    items=[
        ("ma_elevated_mood", "心境高涨：0 无 → 4 持续的欣快、夸大", 1.0),
        ("ma_goal_activity", "活动-精力增加：0 无 → 4 动作持续暴增、无法安静", 1.0),
-       ("ma_risky_behavior", "性兴趣：0 正常 → 4 公开的性行为", 0.7),
+       ("ma_risky_behavior", "冲动控制：0 正常 → 4 明显外显、影响他人", 0.7),
        ("ma_decreased_sleep", "睡眠：0 正常 → 4 完全不需要睡眠", 1.0),
        ("ma_irritability", "易激惹：0 无 → 8 敌对、无法合作", 1.0),
        ("ma_pressured_speech", "言语-速度与数量：0 正常 → 8 无法被打断", 1.0),
