@@ -1810,6 +1810,553 @@ D("REP-VAGINOSIS", "生殖道菌群失调", "repro", base=0.0018,
   sx=["分泌物增多并带有异味", "局部轻度瘙痒灼热"], acute=True, dur=400.0,
   sex="f", age=(15.0, 55.0), treat=["甲硝唑"])
 
+# ======================================================================
+# v1.9.1 补充病种
+# ----------------------------------------------------------------------
+# 补的是「目录里有病、但没人得过、也没药可医」的缺口：幽门螺杆菌、胆总管
+# 结石、艰难梭菌、非结核分枝菌、宫颈 HPV、丛集性头痛、发作性睡病、
+# 韦尼克脑病、坏疽性脓皮病、肾性贫血……这些在真实生活里都会遇到，
+# 而此前的目录只能抽出感冒、肺炎、痛风、骨折这类高频项。
+#
+# 每条都按同一套字段写：起病概率（急性按日、慢性按月）、风险因子、
+# 器官损伤上限、化验偏移、主观症状、是否可自限、治它的药。
+# 概率尺度是有意分开的：常见的病 base 高但不留后遗症，罕见的病 base 极低
+# 但器官损伤重，这样长程模拟里「得一次感冒」和「查出血管炎」是两种体验。
+# ======================================================================
+
+# ---- 心血管 ----
+D("CV-AF-FLUTTER", "心房扑动", "cardio", base=0.0006,
+  risk={"age": 0.8, "SBP": 0.4, "alcohol": 0.4},
+  org={"heart": 0.12},
+  labs={"HR": (16.0, "add")},
+  sx=["心跳快而规整，像敲小鼓", "胸口发闷", "轻微头晕"],
+  treat=["胺碘酮", "比索洛尔"])
+D("CV-AI-REGURG", "主动脉瓣关闭不全", "cardio", base=0.0003,
+  risk={"age": 0.6, "SBP": 0.3},
+  org={"heart": 0.15, "vessels": 0.08},
+  sx=["爬两层楼就喘", "心慌", "夜里要坐着才能喘匀"],
+  treat=["卡托普利", "美托洛尔"])
+D("CV-MS-VALVE", "二尖瓣狭窄", "cardio", base=0.0002,
+  risk={"age": 0.7, "pathogen": 0.4},
+  org={"heart": 0.20, "lungs": 0.12},
+  sx=["活动后气短", "夜里躺不平，要垫高上半身", "腿容易肿"],
+  treat=["呋塞米", "比索洛尔"])
+D("CV-PERICARD-EFF", "心包积液", "cardio", base=0.0002,
+  risk={"pathogen": 0.7, "immune": 0.4},
+  org={"heart": 0.18},
+  labs={"CRP": (20.0, "add"), "ESR": (18.0, "add")},
+  sx=["前胸闷痛，站起来好一些", "呼吸费力", "脚踝发胀"],
+  treat=["泼尼松", "呋塞米"])
+D("CV-CAROTID-STENOSIS", "颈动脉狭窄", "cardio", base=0.0006,
+  risk={"age": 0.9, "LDL": 0.8, "smoking": 0.6},
+  org={"vessels": 0.14},
+  labs={"LDL": (0.30, "mul")},
+  sx=["后脑勺发闷，像没睡够", "走路时腿发沉", "偶尔眼前发黑"],
+  treat=["阿司匹林", "匹伐他汀"])
+D("CV-CACHEXIA", "心脏恶病质", "cardio", base=0.0001,
+  risk={"age": 0.5, "protein": 0.5},
+  org={"muscle": 0.22, "fat": 0.18, "heart": 0.12},
+  labs={"ALB": (-8.0, "add"), "PREALB": (-6.0, "add")},
+  sx=["从楼梯上不来了", "衣服明显变松", "稍动一下就累"],
+  treat=["呋塞米", "卡托普利"])
+
+# ---- 呼吸 ----
+D("RS-CHRONIC-BRONCH", "慢性支气管炎", "resp", base=0.0025,
+  risk={"smoking": 1.4, "age": 0.5, "pm25": 0.4},
+  org={"airway": 0.18, "lungs": 0.08},
+  labs={"WBC": (1.0, "add")},
+  sx=["反复咳嗽、咳白痰", "冬天更明显", "活动后气短"],
+  treat=["羧甲司坦", "异丙托溴铵"])
+D("RS-ATEL", "肺不张", "resp", base=0.0004,
+  risk={"pathogen": 0.6, "smoking": 0.4},
+  org={"lungs": 0.16},
+  labs={"pO2": (-9.0, "add"), "SpO2": (-3.0, "add")},
+  sx=["喘憋、说话费劲", "一侧胸闷", "咳嗽带痰"],
+  treat=["氨溴索", "机械通气"])
+D("RS-ARF", "急性呼吸衰竭", "resp", base=0.0006,
+  risk={"pathogen": 0.8, "age": 0.6, "smoking": 0.5},
+  org={"lungs": 0.30, "heart": 0.10},
+  labs={"pO2": (-22.0, "add"), "pCO2": (14.0, "add"), "pH": (-0.06, "add")},
+  sx=["喘不上气", "嘴唇发紫", "脑子发懵"],
+  acute=True, dur=72.0,
+  treat=["CPAP", "机械通气", "氧气吸入"])
+D("CA-PERTUSSIS", "百日咳", "resp", base=0.0002,
+  risk={"pathogen": 0.8, "age": 0.4},
+  org={"airway": 0.14, "lungs": 0.08},
+  sx=["阵发性痉挛性咳嗽", "咳完会吐", "吸气有鸡鸣样的回声"],
+  acute=True, dur=600.0,
+  treat=["阿奇霉素", "右美沙芬"])
+D("CA-MYCOPLASMA", "支原体肺炎", "resp", base=0.0005,
+  risk={"pathogen": 0.8, "sleep_debt": 0.3},
+  org={"lungs": 0.16},
+  labs={"WBC": (0.8, "add"), "CRP": (14.0, "add")},
+  sx=["干咳、低热", "咽痛", "病程拖得特别长"],
+  acute=True, dur=300.0,
+  treat=["阿奇霉素", "左氧氟沙星"])
+D("RS-NTM", "非结核分枝菌肺病", "resp", base=0.00006,
+  risk={"immune": 0.9, "pm25": 0.3, "age": 0.4},
+  org={"lungs": 0.22, "marrow": 0.05},
+  labs={"CRP": (12.0, "add"), "ESR": (14.0, "add")},
+  sx=["长期咳嗽、咳痰", "反复咳嗽带血", "午后低热、消瘦"],
+  treat=["利福喷汀", "异烟肼", "阿莫西林克拉维酸"])
+D("RS-HAP", "医院获得性肺炎", "resp", base=0.0003,
+  risk={"age": 0.8, "immune": 0.6, "pathogen": 0.6},
+  org={"lungs": 0.24},
+  labs={"WBC": (6.0, "add"), "CRP": (60.0, "add"), "pO2": (-12.0, "add")},
+  sx=["住院后出现高热", "痰变脓性", "氧饱和度往下掉"],
+  acute=True, dur=200.0,
+  treat=["头孢哌酮舒巴坦", "环丙沙星", "机械通气"])
+
+# ---- 消化 ----
+D("GI-HP", "幽门螺杆菌感染", "gi", base=0.0035,
+  risk={"salt": 0.5, "hygiene": 0.5},
+  org={"gut": 0.10},
+  sx=["上腹隐隐作痛", "餐后发胀", "口气重"],
+  treat=["阿莫西林克拉维酸", "奥美拉唑", "硫糖铝"])
+D("GI-CBD-STONE", "胆总管结石", "gi", base=0.0008,
+  risk={"age": 0.7, "fat": 0.6, "sex": 0.3},
+  org={"liver": 0.14, "pancreas_exo": 0.10},
+  labs={"TBA": (12.0, "add"), "AMY": (40.0, "add"), "ALT": (20.0, "add")},
+  sx=["上腹绞痛并向右肩放射", "皮肤和眼白发黄", "发冷发热"],
+  treat=["头孢哌酮舒巴坦", "曲马多"])
+D("GI-CHRONIC-CHOLE", "慢性胆囊炎", "gi", base=0.0012,
+  risk={"fat": 0.5, "age": 0.4, "sex": 0.3},
+  org={"liver": 0.08},
+  labs={"WBC": (1.2, "add"), "CRP": (8.0, "add")},
+  sx=["右上腹隐痛，吃油之后加重", "饭后胀", "嗳气"],
+  treat=["头孢哌酮舒巴坦", "熊去氧胆酸", "多潘立酮"])
+D("GI-HIATAL-HERNIA", "食管裂孔疝", "gi", base=0.0018,
+  risk={"bmi": 0.9, "age": 0.6},
+  org={"gut": 0.08},
+  sx=["平躺时胸口像有东西顶上来", "反酸", "夜里会被憋醒"],
+  treat=["埃索美拉唑", "莫沙必利"])
+D("GI-GASTROPARESIS", "胃轻瘫", "gi", base=0.0004,
+  risk={"age": 0.4, "pathogen": 0.5, "sugar": 0.4},
+  org={"gut": 0.12, "nerve": 0.08},
+  labs={"FPG": (0.6, "add")},
+  sx=["吃一点就撑", "饭后恶心想吐", "没吃几口就饱了"],
+  treat=["莫沙必利", "甲氧氯普胺", "多潘立酮"])
+D("GI-MESENTERIC-ISCH", "肠系膜缺血", "gi", base=0.0002,
+  risk={"age": 0.8, "smoking": 0.6, "SBP": 0.3},
+  org={"gut": 0.22},
+  labs={"LAC": (2.5, "add")},
+  sx=["腹痛和进食有关，吃完加重", "怕吃饭", "体重往下掉"],
+  treat=["曲马多", "静脉人血白蛋白"])
+D("GI-LIVER-ABSCESS", "肝脓肿", "gi", base=0.00012,
+  risk={"pathogen": 0.8, "alcohol": 0.4},
+  org={"liver": 0.22},
+  labs={"WBC": (8.0, "add"), "CRP": (60.0, "add")},
+  sx=["高热伴寒战", "右上腹钝痛", "整个人没力气"],
+  treat=["头孢哌酮舒巴坦", "阿莫西林克拉维酸"])
+D("CA-CDIFF", "艰难梭菌感染", "gi", base=0.0004,
+  risk={"hygiene": 0.6, "age": 0.7},
+  org={"gut": 0.16},
+  labs={"WBC": (6.0, "add")},
+  sx=["用了抗菌药之后开始腹泻", "肚子胀", "大便带黏液"],
+  treat=["万古霉素", "甲硝唑"])
+D("CA-SHIGELLOSIS", "细菌性痢疾", "gi", base=0.0002,
+  risk={"pathogen": 0.9, "hygiene": 0.7},
+  org={"gut": 0.14},
+  labs={"WBC": (5.0, "add")},
+  sx=["黏液脓血便", "便意急、去了又排不出", "腹痛如绞"],
+  acute=True, dur=120.0,
+  treat=["左氧氟沙星", "环丙沙星"])
+D("CA-SALMONELLA", "沙门菌肠炎", "gi", base=0.0003,
+  risk={"pathogen": 0.9, "hygiene": 0.6},
+  org={"gut": 0.12},
+  labs={"WBC": (4.0, "add"), "CRP": (10.0, "add")},
+  sx=["发热伴腹泻", "腹痛", "恶心想吐"],
+  acute=True, dur=140.0,
+  treat=["环丙沙星", "左氧氟沙星"])
+D("CA-CHOLERA", "霍乱", "gi", base=0.00003,
+  risk={"pathogen": 0.9, "hygiene": 0.8},
+  org={"gut": 0.18, "kidney": 0.10},
+  labs={"Na": (-6.0, "add"), "U_SG": (-0.006, "add")},
+  sx=["米泔水样腹泻", "迅速脱水", "口渴得厉害"],
+  acute=True, dur=72.0,
+  treat=["口服补液盐", "环丙沙星"])
+D("CA-TOXO", "弓形虫病", "gi", base=0.00006,
+  risk={"pathogen": 0.6, "immune": 0.8},
+  org={"eye": 0.12, "liver": 0.08},
+  labs={"WBC": (1.5, "add"), "LYMPH_p": (8.0, "add")},
+  sx=["淋巴结肿大", "低热不退", "肌肉酸痛"],
+  treat=["阿苯达唑", "泼尼松"])
+D("CA-EBV", "EB 病毒感染", "gi", base=0.0003,
+  risk={"pathogen": 0.7, "sleep_debt": 0.4},
+  org={"liver": 0.10, "spleen": 0.08},
+  labs={"ALT": (18.0, "add"), "LYMPH_p": (10.0, "add")},
+  sx=["咽痛伴发热", "淋巴结肿大", "肝脾偏大"],
+  acute=True, dur=600.0,
+  treat=["休息与补液", "阿昔洛韦"])
+D("CA-CMV", "巨细胞病毒感染", "gi", base=0.00015,
+  risk={"immune": 0.9, "pathogen": 0.5},
+  org={"liver": 0.12, "marrow": 0.08, "eye": 0.10},
+  labs={"ALT": (25.0, "add"), "WBC": (-1.0, "add")},
+  sx=["持续低热", "浑身乏力", "看东西模糊"],
+  treat=["更昔洛韦", "泼尼松"])
+D("CA-ASCARIS", "蛔虫病", "gi", base=0.0004,
+  risk={"hygiene": 0.8, "pathogen": 0.5},
+  org={"gut": 0.08},
+  labs={"EO_p": (2.0, "add")},
+  sx=["脐周隐痛", "夜里磨牙", "食欲变得古怪"],
+  treat=["阿苯达唑"])
+D("ON-CHOLANGIO", "胆管癌", "gi", base=0.00006,
+  risk={"age": 0.7, "immune": 0.3},
+  org={"liver": 0.25, "pancreas_exo": 0.12},
+  labs={"CA199": (80.0, "add"), "TBA": (20.0, "add")},
+  sx=["皮肤越来越黄", "全身发痒", "尿色像浓茶"],
+  treat=["熊去氧胆酸", "化疗"])
+
+# ---- 内分泌与代谢 ----
+D("EN-DKA", "糖尿病酮症酸中毒", "endo", base=0.00025,
+  risk={"sugar": 0.8, "stress": 0.6, "pathogen": 0.5},
+  org={"kidney": 0.18, "liver": 0.10, "brain": 0.08},
+  labs={"FPG": (6.0, "add"), "pH": (-0.10, "add"), "LAC": (3.0, "add"),
+        "U_KET": (3.0, "add")},
+  sx=["恶心想吐", "呼吸深快，带烂苹果味", "脱水、浑身没力气"],
+  acute=True, dur=48.0,
+  treat=["胰岛素", "液体复苏", "口服补液盐"])
+D("EN-HHS", "高渗高血糖状态", "endo", base=0.00012,
+  risk={"sugar": 0.9, "age": 0.6},
+  org={"brain": 0.16, "kidney": 0.12},
+  labs={"FPG": (12.0, "add"), "OSM": (30.0, "add"), "pH": (-0.03, "add")},
+  sx=["意识模糊", "极度口渴", "皮肤干得像纸"],
+  acute=True, dur=72.0,
+  treat=["液体复苏", "胰岛素", "口服补液盐"])
+D("EN-THYROID-STORM", "甲状腺危象", "endo", base=0.00002,
+  risk={"pathogen": 0.8, "stress": 0.8},
+  org={"heart": 0.30, "thyroid": 0.20},
+  labs={"FT3": (8.0, "add"), "FT4": (6.0, "add"), "HR": (30.0, "add")},
+  sx=["高热，心跳极快", "手抖、坐不住", "上吐下泻"],
+  acute=True, dur=48.0, mortal=0.006,
+  treat=["甲巯咪唑", "普萘洛尔", "氢化可的松"])
+D("EN-ADRENAL-CRISIS", "肾上腺危象", "endo", base=0.00003,
+  risk={"stress": 0.8, "pathogen": 0.6},
+  org={"adrenal": 0.28},
+  labs={"Na": (-6.0, "add"), "K": (1.2, "add"), "COR_8am": (-60.0, "add")},
+  sx=["血压掉下去，虚脱", "恶心呕吐", "意识模糊"],
+  acute=True, dur=48.0, mortal=0.006,
+  treat=["氢化可的松", "液体复苏", "口服补液盐"])
+D("EN-INSULIN-RESIST", "胰岛素抵抗", "endo", base=0.0020,
+  risk={"bmi": 1.0, "sedentary": 0.8, "sugar": 0.5},
+  org={"pancreas_endo": 0.10, "liver": 0.06},
+  labs={"HOMA_IR": (2.0, "add"), "INS": (6.0, "add"), "TG": (0.40, "mul")},
+  sx=["吃完饭犯困", "腰围一圈圈变粗", "血糖总是偏高"],
+  treat=["二甲双胍", "阿卡波糖", "吡格列酮"])
+D("EN-SUBHYPOTHY", "亚临床甲状腺功能减退", "endo", base=0.0025,
+  risk={"age": 0.5, "sex": 0.3, "immune": 0.3},
+  org={"thyroid": 0.05},
+  labs={"TSH": (3.0, "add"), "FT4": (-0.6, "add")},
+  sx=["总是没力气", "比别人更怕冷", "头发掉得多"],
+  treat=["左甲状腺素"])
+D("EN-ANDROGEN-EXCESS", "高雄激素血症", "endo", base=0.0008,
+  risk={"bmi": 0.6, "stress": 0.3},
+  org={"gonad": 0.08},
+  labs={"TST": (0.5, "add"), "LH": (3.0, "add")},
+  sx=["痤疮和体毛变多", "月经越来越稀", "头发变稀"],
+  sex="f", age=(15.0, 50.0),
+  treat=["螺内酯", "二甲双胍"])
+
+# ---- 血液 ----
+D("HM-AIHA", "自身免疫性溶血性贫血", "heme", base=0.0003,
+  risk={"immune": 0.6},
+  org={"spleen": 0.14},
+  labs={"HGB": (-28.0, "add"), "LDH": (60.0, "add"), "IBIL": (20.0, "add")},
+  sx=["脸色和眼睑发白", "尿色深黄", "稍微动一下就累"],
+  treat=["泼尼松", "叶酸"])
+D("HM-HSPENO", "脾功能亢进", "heme", base=0.0003,
+  risk={"immune": 0.4},
+  org={"spleen": 0.16, "marrow": 0.08},
+  labs={"PLT": (-60.0, "add"), "WBC": (-3.0, "add"), "HGB": (-16.0, "add")},
+  sx=["容易出血", "反复感染", "总是疲乏"],
+  treat=["促红素", "叶酸"])
+D("HM-HLH", "噬血细胞综合征", "heme", base=0.00002,
+  risk={"pathogen": 0.8, "immune": 0.6},
+  org={"spleen": 0.20, "liver": 0.16, "marrow": 0.10},
+  labs={"TG": (2.0, "add"), "FIB": (-1.0, "add"), "PLT": (-80.0, "add")},
+  sx=["高热退不下来", "肚子胀、脾脏变大", "身上无故出血"],
+  treat=["静脉免疫球蛋白", "泼尼松", "环磷酰胺"])
+D("HM-VITK-DEF", "维生素 K 缺乏", "heme", base=0.0002,
+  risk={"fat": 0.6, "hygiene": 0.2},
+  org={"coag": 0.16, "liver": 0.08},
+  labs={"PT": (8.0, "add"), "INR": (0.8, "add")},
+  sx=["身上无故淤青", "刷牙出血", "伤口止不住血"],
+  treat=["维生素K"])
+D("HM-SCURVY", "维生素 C 缺乏", "heme", base=0.0002,
+  risk={"protein": 0.5, "alcohol": 0.4, "sugar": 0.3},
+  org={"coag": 0.14, "skin": 0.08},
+  labs={"PT": (3.0, "add")},
+  sx=["牙龈出血", "身上无故淤青", "伤口不容易愈合"],
+  treat=["维生素C"])
+D("HM-PLATELET-DYSFN", "血小板功能异常", "heme", base=0.0003,
+  risk={"age": 0.3},
+  org={"coag": 0.14},
+  labs={"PLT": (-20.0, "add")},
+  sx=["黏膜出血", "经期特别多", "拔牙后止不住"],
+  treat=["氨甲环酸"])
+
+# ---- 神经 ----
+D("NR-CLUSTER", "丛集性头痛", "neuro", base=0.0002,
+  risk={"stress": 0.5, "alcohol": 0.5, "sex": 0.3},
+  org={"brain": 0.10},
+  sx=["单侧眼眶周围像被钻", "同侧不停流泪", "会躲到安静角落"],
+  treat=["加巴喷丁", "曲马多", "佐匹克隆"])
+D("NR-CVST", "脑静脉窦血栓", "neuro", base=0.00006,
+  risk={"pathogen": 0.7, "water": 0.6},
+  org={"brain": 0.22},
+  labs={"DD": (1.2, "add")},
+  sx=["持续头痛，越发越重", "反复呕吐", "视物模糊甚至意识改变"],
+  treat=["肝素", "甘露醇"])
+D("NR-WERNICKE", "韦尼克脑病", "neuro", base=0.0002,
+  risk={"alcohol": 1.2},
+  org={"brain": 0.16, "nerve": 0.10},
+  sx=["眼球震颤、看东西重影", "走路摇摇晃晃", "说话糊涂、意识不清"],
+  treat=["硫胺素", "甲钴胺（神经）"])
+D("NR-VIT-E-NEURO", "维生素 E 缺乏性神经病", "neuro", base=0.00008,
+  risk={"fat": 0.5},
+  org={"nerve": 0.16},
+  sx=["手脚发麻", "走路不协调", "肌肉使不上劲"],
+  treat=["维生素E"])
+D("NR-NARCOLEPSY", "发作性睡病", "neuro", base=0.0001,
+  risk={},
+  org={"brain": 0.12},
+  sx=["白天突然就睡着了，拦不住", "入睡前看到奇怪的影子", "夜里睡得零碎"],
+  treat=["莫达非尼", "佐匹克隆"])
+D("NR-CFS", "慢性疲劳综合征", "neuro", base=0.0006,
+  risk={"stress": 0.9, "sleep_debt": 0.6},
+  org={"immune": 0.10, "muscle": 0.08},
+  labs={"CK": (20.0, "add"), "ESR": (6.0, "add")},
+  sx=["躺下休息也不解乏", "稍微动一动就累", "早上起来要缓很久"],
+  treat=["佐匹克隆", "加巴喷丁"])
+D("NR-SUBACUTE-COMB", "亚急性联合变性", "neuro", base=0.0002,
+  risk={"b12": 1.2, "folate": 0.6},
+  org={"nerve": 0.16},
+  labs={"B12": (-40.0, "add")},
+  sx=["手脚发麻", "走路像踩棉花", "腿没力气"],
+  treat=["甲钴胺", "甲钴胺（神经）"])
+
+# ---- 风湿免疫 ----
+D("RH-RHEUMATIC-FEVER", "风湿热", "rheum", base=0.00002,
+  risk={"pathogen": 0.9},
+  org={"heart": 0.24, "joint": 0.14},
+  labs={"ESR": (30.0, "add"), "CRP": (40.0, "add"), "ASO": (120.0, "add")},
+  sx=["关节红肿热痛", "心慌", "皮下摸到小结节"],
+  treat=["青霉素", "泼尼松", "阿司匹林"])
+D("RH-ADULT-STILL", "成人斯蒂尔病", "rheum", base=0.00002,
+  risk={"pathogen": 0.6},
+  org={"joint": 0.16, "liver": 0.12, "spleen": 0.10},
+  labs={"WBC": (8.0, "add"), "FERR": (120.0, "add"), "CRP": (60.0, "add")},
+  sx=["高热反复，退了又来", "关节痛", "热的时候出皮疹、热退了就没"],
+  treat=["泼尼松", "甲氨蝶呤", "萘普生"])
+D("RH-FELTY", "费尔蒂综合征", "rheum", base=0.00001,
+  risk={},
+  org={"joint": 0.18, "spleen": 0.14},
+  labs={"WBC": (-4.0, "add"), "PLT": (-60.0, "add")},
+  sx=["关节肿痛变形", "小腿上起紫斑", "反复感染"],
+  treat=["甲氨蝶呤", "来氟米特"])
+D("RH-MCTD", "混合性结缔组织病", "rheum", base=0.00006,
+  risk={},
+  org={"vessels": 0.16, "skin": 0.12, "joint": 0.10},
+  labs={"ANA": (1.0, "add"), "RF": (40.0, "add")},
+  sx=["手指头肿胀发硬", "遇冷手指先白后紫", "关节酸痛"],
+  treat=["羟氯喹", "泼尼松", "卡托普利"])
+D("RH-CRYOGLOBULINEMIA", "冷球蛋白血症", "rheum", base=0.00004,
+  risk={"pathogen": 0.5},
+  org={"vessels": 0.16, "kidney": 0.10, "skin": 0.10},
+  labs={"RF": (30.0, "add"), "CRP": (20.0, "add"), "U_PRO": (0.4, "add")},
+  sx=["小腿反复出现紫红色斑块", "关节痛", "尿里带蛋白"],
+  treat=["泼尼松", "环磷酰胺"])
+D("RH-PYODERMA", "坏疽性脓皮病", "rheum", base=0.00002,
+  risk={},
+  org={"skin": 0.16},
+  labs={"ESR": (30.0, "add"), "CRP": (25.0, "add")},
+  sx=["皮肤上出现疼痛的紫红色溃疡", "边缘参差不齐", "创面很久不长"],
+  treat=["泼尼松", "环磷酰胺"])
+
+# ---- 皮肤 ----
+D("DR-VITILIGO", "白癜风", "derm", base=0.0006,
+  risk={"stress": 0.5, "immune": 0.3},
+  org={"skin": 0.08},
+  sx=["皮肤出现瓷白色斑片", "边界很清楚", "不痛不痒"],
+  treat=["卤米松", "卡泊三醇", "维生素E"])
+D("DR-ERYTHEMA-MULTIFORME", "多形红斑", "derm", base=0.0003,
+  risk={"pathogen": 0.8},
+  org={"skin": 0.14},
+  labs={"CRP": (15.0, "add")},
+  sx=["手脚出现靶形红斑，中间颜色深", "口腔糜烂", "伴着发热"],
+  treat=["阿昔洛韦", "泼尼松"])
+D("DR-SJS", "重症药疹", "derm", base=0.00002,
+  risk={"pathogen": 0.8},
+  org={"skin": 0.24, "eye": 0.12, "gut": 0.10},
+  labs={"CRP": (40.0, "add")},
+  sx=["全身红皮并起水疱", "口腔、眼睛、肛门糜烂", "高热寒战"],
+  treat=["泼尼松", "静脉免疫球蛋白", "环丙沙星"])
+D("DR-CHILBLAIN", "冻疮", "derm", base=0.0004,
+  risk={"cold": 1.6},
+  org={"skin": 0.08},
+  sx=["手指脚趾红肿发亮", "回温时又痒又刺", "冬天反复发作"],
+  treat=["维生素E", "卤米松"])
+D("DR-HYPERHIDROSIS", "多汗症", "derm", base=0.0008,
+  risk={"stress": 0.6},
+  org={"skin": 0.06},
+  sx=["手心脚心出汗特别多", "袜子能拧出水", "一紧张就出"],
+  treat=["普萘洛尔", "佐匹克隆"])
+
+# ---- 运动系统 ----
+D("MS-AVASCULAR-NECROSIS", "股骨头缺血性坏死", "msk", base=0.0002,
+  risk={"alcohol": 0.9, "stress": 0.2},
+  org={"bone": 0.20, "joint": 0.16},
+  labs={"ALP": (20.0, "add")},
+  sx=["髋部疼痛，走路一瘸一拐", "活动后加重", "夜里会痛醒"],
+  treat=["依托考昔", "地舒单抗", "玻璃酸钠"])
+D("MS-SYNOVITIS", "滑膜炎", "msk", base=0.0008,
+  risk={},
+  org={"joint": 0.12},
+  labs={"CRP": (8.0, "add")},
+  sx=["关节又肿又热", "活动时疼", "关节里有积液的感觉"],
+  treat=["曲安奈德", "玻璃酸钠", "依托考昔"])
+D("MS-LATERAL-EPICOND", "肱骨外上髁炎", "msk", base=0.0010,
+  risk={},
+  org={"joint": 0.10, "bone": 0.06},
+  sx=["拧毛巾、提壶时肘外侧痛", "握东西没力气", "早上起来发僵"],
+  treat=["依托考昔", "曲安奈德", "玻璃酸钠"])
+
+# ---- 眼 ----
+D("EYE-UVEITIS", "葡萄膜炎", "eye", base=0.0004,
+  risk={"immune": 0.6},
+  org={"eye": 0.16},
+  labs={"ESR": (15.0, "add"), "CRP": (8.0, "add")},
+  sx=["眼睛红、疼", "怕光不敢睁眼", "看东西发雾"],
+  treat=["泼尼松", "妥布霉素地塞米松滴眼液"])
+D("EYE-RVO", "视网膜静脉阻塞", "eye", base=0.0004,
+  risk={"age": 0.8, "bmi": 0.5, "LDL": 0.4},
+  org={"eye": 0.18, "vessels": 0.08},
+  labs={"FIB": (0.6, "add")},
+  sx=["突然视力下降", "视野里有黑影遮挡", "看东西发直变形"],
+  treat=["阿司匹林", "人工泪液"])
+D("EYE-BLEPHARITIS", "睑缘炎", "eye", base=0.0012,
+  risk={"hygiene": 0.8, "allergen": 0.6},
+  org={"eye": 0.06, "skin": 0.04},
+  sx=["眼皮边缘发红发痒", "眼屎特别多", "睫毛根部长小疙瘩"],
+  treat=["妥布霉素地塞米松滴眼液", "人工泪液", "维生素A"])
+D("EYE-KERATOCONUS", "圆锥角膜", "eye", base=0.0002,
+  risk={"allergen": 0.4, "age": 0.3},
+  org={"eye": 0.10},
+  sx=["看东西变形、拖影", "畏光", "换眼镜也看不清楚"],
+  treat=["人工泪液"], note="以配镜与手术矫正为主，药物只缓解干涩")
+
+# ---- 泌尿 ----
+D("REN-URINARY-RETENTION", "尿潴留", "renal", base=0.0010,
+  risk={"age": 0.8, "sex": 0.3},
+  org={"bladder": 0.16, "kidney": 0.08},
+  labs={"U_SG": (0.006, "add")},
+  sx=["下腹胀得难受，尿排不出来", "耻骨上面憋着痛", "夜里总要起来排"],
+  treat=["坦索罗辛", "索利那新"])
+D("RN-RENAL-ANEMIA", "肾性贫血", "renal", base=0.0016,
+  risk={"age": 0.7},
+  org={"kidney": 0.18, "marrow": 0.06},
+  labs={"HGB": (-24.0, "add"), "RDW": (4.0, "add")},
+  sx=["脸色发白、没力气", "上楼梯要停一次", "动不动就心慌"],
+  treat=["促红素", "叶酸"])
+D("RN-NEPHROCALCINOSIS", "肾钙化", "renal", base=0.0003,
+  risk={"age": 0.5},
+  org={"kidney": 0.14},
+  labs={"Ca": (0.20, "add"), "P": (0.10, "add")},
+  sx=["腰背隐隐作痛", "尿变多", "有时候尿里带血丝"],
+  treat=["碳酸氢钠", "枸橼酸氢钾"])
+D("RN-HEMORRHAGIC-CYSTITIS", "出血性膀胱炎", "renal", base=0.00003,
+  risk={"immune": 0.6},
+  org={"bladder": 0.18},
+  labs={"U_BLD": (2.0, "add"), "U_WBC": (20.0, "add")},
+  sx=["尿里带血", "尿频尿急", "下腹不适"],
+  treat=["碳酸氢钠", "氨甲环酸"])
+
+# ---- 生殖 ----
+D("RP-HPV", "宫颈 HPV 感染", "repro", base=0.0020,
+  risk={"sex": 0.8, "smoking": 0.4},
+  org={"gonad": 0.03},
+  sx=["宫颈筛查结果异常", "白带增多", "多数时候没有感觉"],
+  sex="f", age=(18.0, 60.0),
+  treat=["咪喹莫特"])
+D("ON-CIN", "宫颈上皮内瘤变", "repro", base=0.0006,
+  risk={"sex": 0.8, "smoking": 0.3},
+  org={"gonad": 0.06},
+  labs={"CA125": (5.0, "add")},
+  sx=["宫颈筛查反复异常", "偶尔有接触性出血", "多数时候没有症状"],
+  sex="f", age=(20.0, 60.0),
+  treat=["咪喹莫特"])
+D("RP-PID", "盆腔炎性疾病", "repro", base=0.0004,
+  risk={"sex": 0.8, "pathogen": 0.6},
+  org={"gonad": 0.12},
+  labs={"WBC": (5.0, "add"), "CRP": (20.0, "add")},
+  sx=["下腹压着痛", "发低热", "白带变多"],
+  sex="f", acute=True, dur=480.0,
+  treat=["头孢曲松", "甲硝唑", "环丙沙星"])
+D("CA-SYPHILIS-ALT", "性传播螺旋体感染", "repro", base=0.0001,
+  risk={"sex": 0.9},
+  org={"skin": 0.08, "vessels": 0.10, "nerve": 0.08},
+  labs={"CRP": (8.0, "add")},
+  sx=["皮肤出现不痛的皮损", "手掌脚底对称的斑丘疹", "口腔里无痛性溃疡"],
+  treat=["青霉素", "多西环素"])
+D("CA-GONORRHEA", "淋病", "repro", base=0.0002,
+  risk={"sex": 0.9},
+  org={"gonad": 0.10},
+  sx=["尿道口有分泌物", "排尿时灼痛", "没有症状的携带很常见"],
+  treat=["头孢曲松", "环丙沙星"])
+D("CA-GENITAL-HSV", "生殖道疱疹", "repro", base=0.0003,
+  risk={"sex": 0.9, "pathogen": 0.4},
+  org={"skin": 0.10},
+  sx=["成簇的小水疱，灼痛", "破溃成溃疡", "会反复发作"],
+  acute=True, dur=240.0,
+  treat=["伐昔洛韦", "阿昔洛韦"])
+D("RE-EPIDIDYMITIS", "附睾炎", "repro", base=0.0004,
+  risk={"sex": 0.6, "pathogen": 0.5},
+  org={"gonad": 0.12},
+  sx=["阴囊一侧肿痛", "摸到小结节", "排尿时不适"],
+  acute=True, dur=480.0,
+  treat=["环丙沙星", "左氧氟沙星", "头孢曲松"])
+D("RE-VARICOCELE", "精索静脉曲张", "repro", base=0.0008,
+  risk={},
+  org={"gonad": 0.06, "vessels": 0.08},
+  sx=["阴囊坠胀不适", "站久了加重", "躺下能缓解"],
+  sex="m", age=(15.0, 45.0),
+  treat=[], note="以手术或支撑治疗为主，药物只作对症")
+
+# ---- 代谢 ----
+D("MET-HYPOCALCEMIA", "低钙血症", "metab", base=0.0006,
+  risk={"vitd": 0.8, "protein": 0.4, "salt": 0.3},
+  org={"bone": 0.10, "muscle": 0.08},
+  labs={"Ca": (-1.2, "add"), "PTH": (30.0, "add")},
+  sx=["手脚发麻、肌肉抽动", "嘴唇周围发麻", "心慌"],
+  treat=["碳酸钙", "骨化三醇"])
+D("MET-HYPOMAGNESEMIA", "低镁血症", "metab", base=0.0005,
+  risk={"alcohol": 0.8, "water": 0.4},
+  org={"nerve": 0.08, "heart": 0.10},
+  labs={"Mg": (-0.5, "add")},
+  sx=["肌肉震颤、手足搐搦", "心律不齐", "浑身没力气"],
+  treat=["硫酸镁"])
+D("MET-LACTIC-ACIDOSIS", "乳酸酸中毒", "metab", base=0.0003,
+  risk={"pathogen": 0.8, "stress": 0.4},
+  org={"liver": 0.12, "kidney": 0.10},
+  labs={"LAC": (4.0, "add"), "pH": (-0.08, "add"), "HCO3": (-6.0, "add")},
+  sx=["恶心呕吐", "呼吸急促", "深蹲下来就头晕"],
+  acute=True, dur=48.0,
+  treat=["液体复苏", "碳酸氢钠"])
+D("MET-CO-POISONING", "一氧化碳中毒", "metab", base=0.00006,
+  risk={"heat": 0.4, "smoking": 0.6},
+  org={"brain": 0.20, "heart": 0.10, "marrow": 0.06},
+  labs={"SaO2": (-4.0, "add"), "LAC": (1.5, "add")},
+  sx=["头痛头晕", "恶心", "皮肤发红、口唇樱桃红"],
+  acute=True, dur=36.0,
+  treat=["氧气吸入", "CPAP"])
+D("MET-RESPIRATORY-ALKALOSIS", "呼吸性碱中毒", "metab", base=0.0004,
+  risk={"stress": 0.8, "pain": 0.6},
+  org={"brain": 0.06},
+  labs={"pH": (0.05, "add"), "pCO2": (-10.0, "add")},
+  sx=["手指口周发麻", "头晕", "胸口发闷"],
+  acute=True, dur=36.0,
+  treat=["休息与补液", "加巴喷丁"])
+
 
 # 需要额外化验项目支持的特殊指标（基表未列，供参考实现补齐）
 EXTRA_LABS: Dict[str, Tuple[str, str, float, float]] = {

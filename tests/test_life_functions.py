@@ -103,6 +103,52 @@ def test_catalog_scale() -> None:
     ok("急性/慢性的概率尺度分类一致")
 
 
+def test_every_disease_shows_up_in_report() -> None:
+    """目录里的每个病都要能落到体检卡上。
+
+    病名写错、没接进报告分支、渲染时抛异常——这些在逐个测单个病的时候
+    很难发现，把全目录扫一遍就都露出来了。
+    """
+    e = Physiology({"physio_disease_onset": False})
+    miss = []
+    for code, spec in DISEASES.items():
+        b = B.new_body(seed=3)
+        b["clock"] = 10.0
+        B.add_condition(b, code, spec["zh"], sev=0.4)
+        e.refresh(b)
+        if spec["zh"] not in R.render_full(b):
+            miss.append(code)
+    if miss:
+        fail(f"{len(miss)} 个病没进体检卡：" + "、".join(miss[:6]))
+    ok(f"全部 {len(DISEASES)} 个病都能进体检卡")
+
+
+def test_drug_indications_resolve() -> None:
+    """药的适应症必须指向真病种。
+
+    写错一个代码，副作用就会记到别的病上，而目录自洽检查抓不到：
+    它只查病侧的 treat，查不到药侧的 ind。
+    """
+    bad = {}
+    for name, spec in DRUGS.items():
+        for code in spec["ind"]:
+            if code != "PSY" and code not in DISEASES:
+                bad.setdefault(code, []).append(name)
+    if bad:
+        fail("药的适应症指向不存在的病：" +
+             "；".join(f"{c}←{'/'.join(v[:2])}" for c, v in list(bad.items())[:5]))
+    ok(f"药物适应症全部对得上（{len(DRUGS)} 种药）")
+
+
+def test_library_did_not_shrink() -> None:
+    """库只会变大，不会被改小。"""
+    if len(DISEASES) < 470:
+        fail(f"病种只剩 {len(DISEASES)} 个")
+    if len(DRUGS) < 260:
+        fail(f"药物只剩 {len(DRUGS)} 种")
+    ok(f"病种 {len(DISEASES)}、药物 {len(DRUGS)}")
+
+
 def test_environment_risk() -> None:
     """中暑只该在热的时候发生，失温只该在冷的时候发生。"""
     e = Physiology({"physio_disease_onset": False})
@@ -968,6 +1014,9 @@ def main() -> None:
     test_catalog_integrity()
     test_catalog_no_dup_name()
     test_catalog_scale()
+    test_every_disease_shows_up_in_report()
+    test_drug_indications_resolve()
+    test_library_did_not_shrink()
     test_environment_risk()
     test_hunger_follows_meals()
     test_thirst_appears_overnight()

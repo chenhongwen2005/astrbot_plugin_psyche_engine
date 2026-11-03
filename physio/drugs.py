@@ -568,6 +568,228 @@ K("休息与补液", "支持治疗", ind=["GI-HEPATITIS-A", "CA-URI"], route="�
 K("胃肠减压", "支持治疗", ind=["GI-OBSTRUCT"], route="操作",
   side=["咽部不适", "口干"], clear="none")
 
+# ======================================================================
+# v1.9.1 补充药物
+# ----------------------------------------------------------------------
+# 补的是三类缺口：一是有真实病种但库里没有对症药的（幽门螺杆菌、艰难梭菌、
+# 非结核分枝菌），二是临床常用却一直没登记的降压降脂与抗凝药（吲达帕胺、
+# 磺达肝癸钠），三是本地医院开得出、但此前没登记的（骨化三醇、氨甲环酸）。
+# 每条按同一套字段写：器官影响、化验偏移、主观副作用、适应症、清除途径。
+# ======================================================================
+
+# ---- 抗感染 ----
+K("头孢呋辛酯", "二代头孢", ind=["CA-SINUS", "CA-OTITIS", "CA-PNEU", "CA-PHARYN"],
+  side=["腹泻", "皮疹"], clear="kidney")
+K("头孢哌酮舒巴坦", "三代头孢（酶抑制剂）",
+  ind=["GI-CHOLANG", "GI-GALLSTONE", "GI-CBD-STONE", "GI-LIVER-ABSCESS",
+       "CA-PNEU", "GI-CHRONIC-CHOLE", "RS-HAP"],
+  side=["腹泻", "肝酶升高"], clear="both",
+  note="革兰阴性菌与厌氧菌混合感染常用")
+K("环丙沙星", "氟喹诺酮类",
+  ind=["CA-UTI", "CA-PROSTAT", "CA-PYELO", "RE-EPIDIDYMITIS",
+       "CA-SHIGELLOSIS", "CA-SALMONELLA", "CA-CHOLERA", "CA-GONORRHEA"],
+  side=["肌腱痛", "失眠", "光敏", "QT 延长"], clear="kidney")
+K("依曲康唑", "三唑类抗真菌", ind=["CA-CANDIDA", "DERM-TINEA-PEDIS", "CA-ASPERGILLUS"],
+  labs={"ALT": (22.0, "add")}, side=["恶心", "肝酶升高"], clear="liver",
+  note="口服与静脉两型，念珠菌感染常用")
+K("更昔洛韦", "核苷类抗病毒", ind=["CA-CMV"],
+  org={"marrow": -0.12, "kidney": -0.06},
+  labs={"WBC": (-2.0, "add"), "CREA": (15.0, "add")},
+  side=["骨髓抑制", "恶心", "肾毒性"], clear="kidney",
+  note="免疫低下时的巨细胞病毒感染，需监测血象")
+K("阿苯达唑", "驱虫药", ind=["CA-ASCARIS", "CA-TOXO"],
+  side=["头痛", "腹泻", "肝酶升高"], clear="liver")
+K("利福喷汀", "抗结核药", ind=["CA-TB", "RS-NTM"],
+  labs={"ALT": (18.0, "add")},
+  side=["肝酶升高", "体位性低血压", "关节痛"], clear="liver")
+
+# ---- 心血管 ----
+K("匹伐他汀", "HMG-CoA 还原酶抑制剂",
+  ind=["EN-DYSLIPID", "CV-AS", "CV-CAD", "CV-CAROTID-STENOSIS"],
+  labs={"LDL": (-0.8, "mul"), "TG": (-0.2, "mul"), "ALT": (12.0, "add")},
+  side=["肌痛", "肝酶升高"], clear="liver")
+K("卡托普利", "ACEI", ind=["CV-HTN", "CV-HF", "RN-RAS", "RH-MCTD"],
+  labs={"SBP": (-8.0, "add"), "K": (0.3, "add")},
+  side=["干咳", "血管性水肿", "高钾"], clear="kidney")
+K("吲达帕胺", "噻嗪类利尿剂", ind=["CV-HTN", "CV-HF", "CV-MS-VALVE"],
+  labs={"Na": (-3.0, "add"), "K": (-0.4, "add"), "SBP": (-6.0, "add")},
+  side=["低钾", "夜尿增多", "头晕"], clear="kidney")
+K("托拉塞米", "袢利尿剂", ind=["CV-HF", "CV-MS-VALVE"],
+  labs={"Na": (-6.0, "add"), "K": (-0.8, "add"), "U_SG": (0.004, "add")},
+  side=["低钾", "耳鸣", "低血压"], clear="kidney")
+K("单硝酸异山梨酯", "硝酸酯类", ind=["CV-CAD"],
+  labs={"SBP": (-5.0, "add")}, side=["头痛", "面红"], clear="liver",
+  note="作用比硝酸甘油平稳，适合长期预防")
+K("依达拉奉", "自由基清除剂", ind=["NR-STROKE", "NR-ICH"],
+  org={"liver": -0.04}, labs={"CREA": (12.0, "add")},
+  side=["肝酶升高", "肾功能异常", "皮疹"], clear="kidney",
+  note="缺血性卒中的脑保护治疗")
+
+# ---- 内分泌与代谢 ----
+K("阿卡波糖", "α-葡萄糖苷酶抑制剂",
+  ind=["EN-T2DM", "EN-PREDM", "EN-INSULIN-RESIST"],
+  labs={"FPG": (-0.5, "add"), "HbA1c": (-0.4, "add")},
+  side=["腹胀", "排气增多", "腹泻"], clear="liver")
+K("吡格列酮", "噻唑烷二酮", ind=["EN-T2DM", "EN-INSULIN-RESIST"],
+  org={"liver": -0.05}, labs={"HbA1c": (-0.6, "add"), "TG": (-0.3, "mul")},
+  side=["水肿", "体重增加"], clear="liver")
+K("甘精胰岛素", "胰岛素类似物（长效）", ind=["EN-T2DM", "EN-T1DM"],
+  labs={"FPG": (-1.2, "add"), "HbA1c": (-0.8, "add")},
+  side=["低血糖", "体重增加"], clear="none", route="注射")
+K("门冬胰岛素", "胰岛素类似物（速效）", ind=["EN-T1DM", "EN-T2DM"],
+  labs={"FPG": (-1.0, "add")},
+  side=["低血糖", "注射部位反应"], clear="none", route="注射")
+K("骨化三醇", "维生素D制剂",
+  ind=["EN-HYPOPTH", "RN-CKD", "EN-OSTEOMALACIA", "MET-HYPOCALCEMIA"],
+  labs={"Ca": (0.35, "add"), "PTH": (-20.0, "add")},
+  side=["高钙血症", "口渴多尿"], clear="liver")
+K("帕立骨化醇", "维生素D制剂", ind=["EN-VITD-DEF", "EN-OSTEOMALACIA"],
+  labs={"VD_25": (12.0, "add"), "Ca": (0.20, "add")},
+  side=["便秘", "高钙血症"], clear="liver")
+
+# ---- 消化 ----
+K("硫糖铝", "黏膜保护剂", ind=["GI-PUD", "GI-UGIB", "GI-GASTRITIS", "GI-HP"],
+  side=["便秘", "口干"], clear="kidney",
+  note="在胃黏膜表面成膜，常与抑酸药合用")
+K("埃索美拉唑", "质子泵抑制剂",
+  ind=["GI-PUD", "GI-UGIB", "GI-ESOPHAGITIS", "GI-GASTRITIS",
+       "GI-HIATAL-HERNIA", "GI-HP"],
+  labs={"Mg": (-0.10, "add")},
+  side=["头痛", "腹泻", "长期使用会缺镁"], clear="liver")
+
+# ---- 呼吸 ----
+K("异丙托溴铵", "长效抗胆碱能",
+  ind=["RS-COPD", "RS-ASTHMA", "RS-CHRONIC-BRONCH"],
+  side=["口干", "排尿困难", "视物模糊"], clear="kidney", route="吸入")
+K("福莫特罗", "长效 β2 激动剂",
+  ind=["RS-ASTHMA", "RS-COPD", "RS-CHRONIC-BRONCH"],
+  labs={"HR": (6.0, "add")}, side=["心悸", "手抖", "低钾"], clear="liver", route="吸入")
+K("羧甲司坦", "祛痰药",
+  ind=["RS-COPD", "CA-BRONCH", "RS-BRONCHIECT", "RS-CHRONIC-BRONCH"],
+  side=["恶心", "腹泻"], clear="kidney")
+K("茶碱", "甲基黄嘌呤", ind=["RS-ASTHMA", "RS-COPD"],
+  labs={"HR": (4.0, "add")},
+  side=["心悸", "手抖", "失眠", "胃部不适"], clear="liver",
+  note="治疗窗窄，需监测血药浓度")
+K("右美沙芬", "中枢性镇咳",
+  ind=["CA-URI", "CA-BRONCH", "CA-PNEU", "CA-PERTUSSIS"],
+  side=["嗜睡", "恶心"], clear="liver")
+
+# ---- 镇痛与风湿 ----
+K("吲哚美辛", "非甾体抗炎药", ind=["EN-GOUT", "MS-TENDINITIS", "MSK-ACHILLES"],
+  org={"kidney": -0.10, "gut": -0.06}, labs={"CREA": (12.0, "add")},
+  side=["胃痛", "头晕"], clear="liver")
+K("萘普生", "非甾体抗炎药", ind=["MS-TENDINITIS", "NR-RADICULO", "MS-OA"],
+  org={"kidney": -0.08}, side=["胃部不适", "嗜睡"], clear="liver")
+K("来氟米特", "免疫抑制", ind=["RH-RA", "RH-PSA", "RH-FELTY"],
+  org={"liver": -0.10, "marrow": -0.08},
+  labs={"ALT": (22.0, "add"), "WBC": (-1.2, "add")},
+  side=["腹泻", "肝酶升高", "脱发"], clear="liver")
+K("曲安奈德", "糖皮质激素（关节腔注射）",
+  ind=["MS-TENDINITIS", "MSK-FROZEN", "MS-ROTATOR", "MS-SYNOVITIS",
+       "MS-LATERAL-EPICOND"],
+  labs={"FPG": (0.4, "add")},
+  side=["注射部位疼痛", "关节肿胀加重"], clear="liver", route="注射")
+K("玻璃酸钠", "关节腔黏弹补充",
+  ind=["MS-OA", "MSK-MENISCUS", "MS-SYNOVITIS", "MS-LATERAL-EPICOND"],
+  side=["注射部位反应"], clear="none", route="注射")
+K("芬太尼", "阿片类",
+  ind=["MS-FRACTURE", "INJ-FRACTURE-ANKLE", "INJ-FRACTURE-WRIST", "INJ-FALL"],
+  labs={"RR": (-3.0, "add")},
+  side=["嗜睡", "恶心", "呼吸抑制"], clear="liver", route="静脉")
+
+# ---- 抗凝 ----
+K("磺达肝癸钠", "低分子肝素", ind=["CV-DVT", "CV-PE", "CV-AF", "NR-CVST"],
+  labs={"APTT": (4.0, "add")},
+  side=["出血", "注射部位血肿"], clear="kidney", route="皮下")
+
+# ---- 骨与血液 ----
+K("地舒单抗", "RANKL 单抗",
+  ind=["EN-OSTEOPOR", "MS-OSTEO-FRAG", "MS-AVASCULAR-NECROSIS"],
+  labs={"Ca": (-0.05, "add")},
+  side=["低钙血症", "肌肉酸痛", "感染风险"], clear="none", route="注射")
+K("依替膦酸二钠", "双膦酸盐", ind=["EN-OSTEOPOR", "MS-OSTEO-FRAG"],
+  labs={"CREA": (8.0, "add")},
+  side=["发热", "骨痛", "下颌骨坏死"], clear="kidney", route="静脉")
+K("去铁胺", "铁螯合剂", ind=["GD-HEMOCHROM", "HM-THAL"],
+  labs={"FE": (-18.0, "add"), "TSAT": (-0.10, "add")},
+  side=["耳鸣", "视物模糊", "低血压"], clear="kidney", route="注射")
+K("静脉人血白蛋白", "胶体渗透压补充",
+  ind=["RN-NEPHROTIC", "GI-CIRRHOSIS", "RN-HYDRONEPH",
+       "GI-MESENTERIC-ISCH", "RN-HEMORRHAGIC-CYSTITIS"],
+  labs={"ALB": (12.0, "add")},
+  side=["头痛", "过敏样反应"], clear="none", route="静脉")
+K("静脉免疫球蛋白", "被动免疫",
+  ind=["HM-ITP", "NR-GBS", "NR-MG", "HM-HLH", "DR-SJS"],
+  org={"marrow": -0.04},
+  side=["头痛", "无菌性脑膜炎", "肾小管损伤"], clear="none", route="静脉")
+
+# ---- 眼科 ----
+K("拉坦前列素", "降眼压药", ind=["EY-GLAUCOMA", "EYE-RVO"],
+  side=["眼睑发红", "视物模糊", "虹膜色素沉着"], clear="liver", route="滴眼")
+K("妥布霉素地塞米松滴眼液", "抗菌滴眼",
+  ind=["EY-CONJUNCT", "EYE-STYE", "EYE-UVEITIS", "EYE-BLEPHARITIS"],
+  side=["眼刺痛", "眼压升高"], clear="liver", route="滴眼")
+
+# ---- 皮肤 ----
+K("他克莫司", "外用免疫抑制", ind=["DR-ECZEMA", "DR-CONTACT", "DR-PSORIASIS"],
+  side=["局部灼热", "毛囊炎"], clear="liver", route="外用")
+K("卡泊三醇", "外用维生素D类似物", ind=["DR-PSORIASIS", "DR-VITILIGO"],
+  labs={"Ca": (0.08, "add")}, side=["局部刺激", "皮疹"], clear="liver", route="外用")
+K("卤米松", "外用糖皮质激素",
+  ind=["DR-ECZEMA", "DR-PSORIASIS", "DERM-SEBORRHEIC", "DR-VITILIGO", "DR-CHILBLAIN"],
+  org={"skin": -0.04, "adrenal": -0.03},
+  side=["皮肤变薄", "毛细血管扩张", "毛囊炎"], clear="liver", route="外用")
+
+# ---- 碱化与补充 ----
+K("碳酸氢钠", "碱化剂",
+  ind=["RN-STONE", "REN-URETER-STONE", "EN-HYPERURIC", "MET-LACTIC-ACIDOSIS"],
+  labs={"pH": (0.06, "add"), "Na": (5.0, "add")},
+  side=["腹胀", "嗳气"], clear="kidney")
+K("枸橼酸氢钾", "泌尿系碱化剂",
+  ind=["REN-URETER-STONE", "RN-STONE", "RN-NEPHROCALCINOSIS"],
+  labs={"K": (0.4, "add"), "pH": (0.05, "add")},
+  side=["胃部不适"], clear="kidney")
+K("硫酸镁", "电解质补充",
+  ind=["MET-HYPOMAGNESEMIA", "MET-HYPOKALEMIA", "NR-WERNICKE"],
+  labs={"Mg": (0.5, "add")}, side=["腹泻", "潮红"], clear="kidney")
+K("维生素K", "维生素", ind=["HM-VITK-DEF", "GI-VARICES"],
+  labs={"PT": (-6.0, "add"), "INR": (-0.5, "add")},
+  side=["潮红", "味觉异常"], clear="liver")
+K("氨甲环酸", "止血药",
+  ind=["HM-PLATELET-DYSFN", "GI-UGIB", "RN-HEMORRHAGIC-CYSTITIS"],
+  side=["头晕", "胃肠不适"], clear="kidney")
+K("氧气吸入", "支持治疗", ind=["MET-CO-POISONING", "RS-ARF", "RS-ATEL"],
+  route="吸入", side=["鼻腔干燥"], clear="none")
+
+# ---- 维生素与神经 ----
+K("硫胺素", "维生素", ind=["NR-WERNICKE", "NR-NEUROPATHY"],
+  side=["注射部位疼痛"], clear="liver",
+  note="维生素 B1 缺乏的预防与治疗")
+K("维生素E", "维生素", ind=["NR-VIT-E-NEURO", "DR-CHILBLAIN", "DR-VITILIGO"],
+  side=["腹泻", "出血倾向"], clear="liver")
+K("莫达非尼", "促醒剂", ind=["NR-NARCOLEPSY", "NR-CFS"],
+  labs={"SBP": (4.0, "add"), "HR": (5.0, "add")},
+  side=["心悸", "失眠", "头痛"], clear="liver")
+K("咪喹莫特", "外用免疫调节剂", ind=["RP-HPV", "ON-CIN"],
+  side=["局部红肿", "灼热"], clear="kidney", route="外用")
+
+# ---- 精神科药物（身体侧效应）----
+K("曲唑酮", "镇静抗抑郁药", ind=["PSY", "NR-MIGRAINE"],
+  labs={"SBP": (-5.0, "add")},
+  side=["嗜睡", "体位性低血压"], clear="liver")
+K("阿普唑仑", "苯二氮䓬类", ind=["PSY"],
+  side=["嗜睡", "记忆减退", "动作变慢"], clear="liver")
+K("佐匹克隆", "镇静催眠药", ind=["PSY", "NR-CFS", "NR-NARCOLEPSY"],
+  side=["嗜睡", "口干", "晨起头昏"], clear="liver")
+K("帕罗西汀", "SSRI", ind=["PSY"],
+  labs={"Na": (1.0, "add")},
+  side=["恶心", "性功能减退", "出汗"], clear="liver")
+K("奥卡西平", "抗癫痫药", ind=["PSY", "NR-TTH", "NR-NEUROPATHY"],
+  labs={"Na": (1.5, "add")},
+  side=["嗜睡", "头晕", "体重下降"], clear="liver",
+  note="低钠血症风险相对低")
+
 
 def resolve(name: str) -> Optional[str]:
     name = (name or "").strip()
