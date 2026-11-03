@@ -127,9 +127,12 @@ def compute(body: Dict[str, Any], labs: Dict[str, float],
     kcal = float(life.get("kcal", 1.0) or 1.0)
     # 吃得少的人饿得快；血糖低会显著把饥饿推上来
     speed = 1.0 / max(0.55, min(1.5, kcal))
-    # 3 小时起步、10 小时到顶：晚饭 19 点、早上 7 点醒，正好是「饿了」。
-    # 原来用 (since-2.2)/4.6，三小时就顶格，于是整夜都是「饿得叫」。
-    hunger = (since - 3.0) / 7.0 * speed
+    # 标定要对着餐点看，不能对着「肚子空了」看。
+    # 原来用 (since-3.0)/7.0，要 7.6 小时才越过 0.66 的线；三餐间隔只有
+    # 5 与 6.5 小时，于是在两顿饭之间饥饿永远涨不到会说出来——一整天
+    # 不喊饿，比喊错更假。现在 3 小时 0.18、4.5 小时 0.52、6 小时 0.86，
+    # 每顿饭前半小时会「有点饿」，隔夜之后起来是「饿得叫」。
+    hunger = (since - 2.2) / 4.4 * speed
     glu = labs.get("GLU")
     if isinstance(glu, (int, float)) and float(glu) < 4.4:
         hunger += (4.4 - float(glu)) * 0.22
@@ -172,10 +175,16 @@ def compute(body: Dict[str, Any], labs: Dict[str, float],
     itch = _clip01(itch)
 
     sig: List[Tuple[str, float]] = []
-    if hunger >= 0.66:
-        sig.append(("肚子饿得叫", hunger))
-    if thirst >= 0.55:
+    # 饿和渴都分两档。一档到底的话，要么整天不吭声，要么一开口就是
+    # 「饿得叫」——真人是先「有点饿」，再撑一会儿才变成难受。
+    if hunger >= 0.80:
+        sig.append(("饿得肚子叫", hunger))
+    elif hunger >= 0.50:
+        sig.append(("有点饿", hunger))
+    if thirst >= 0.72:
         sig.append(("口干，想喝水", thirst))
+    elif thirst >= 0.48:
+        sig.append(("嘴有点干", thirst))
     if urg_b >= 0.72:
         sig.append(("想去趟厕所", urg_b))
     if urg_s >= 0.72:

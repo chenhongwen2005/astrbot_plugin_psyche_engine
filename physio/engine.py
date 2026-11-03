@@ -254,6 +254,9 @@ class Physiology:
         if not B.locked(body, "fitness"):
             life["fitness"] = min(1.0, float(life.get("fitness", 0.5)) + 0.004 * intensity)
         life["sleep_debt"] = max(0.0, float(life.get("sleep_debt", 0.0)) - 0.05)
+        # 出汗要真的掉水合。这里原来什么都不扣，于是「跑完步一身汗」
+        # 对身体零影响，晚上那点口渴也永远不会出现。
+        life["water"] = max(0.15, float(life.get("water", 0.85)) - 0.030 * intensity)
         body["organs"]["muscle"] = min(1.10, body["organs"].get("muscle", 1.0) + 0.002)
         body["organs"]["heart"] = min(1.10, body["organs"].get("heart", 1.0) + 0.001)
         body["organs"]["fat"] = max(0.55, body["organs"].get("fat", 1.0) - 0.0004)
@@ -301,8 +304,11 @@ class Physiology:
         # 喝水集中在三餐窗口，夜里不喝。原来的实现是「白天恒定补 0.02」，
         # 净值恒为正，water 一年到头贴着 1.0，于是口渴这个信号永远不会触发
         # ——那等于没做。改成离散饮水之后，早上起来口干是自然结果。
+        # 早饭窗口从 7.6 点起，不是 7.0：人在 7 点醒、7 点半才喝水，中间
+        # 那半小时正是「起来先觉得嘴干」的时候。窗口一开就补，等于把
+        # 这个最真实的时刻抹掉了。
         intake = 0.0
-        for lo, hi in ((7.0, 9.0), (11.5, 13.5), (17.5, 20.0)):
+        for lo, hi in ((7.6, 9.0), (11.5, 13.5), (17.5, 20.0)):
             if lo <= h < hi:
                 intake += 0.070 * dt
         if 8.0 <= h < 22.0:

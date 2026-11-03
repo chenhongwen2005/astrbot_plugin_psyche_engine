@@ -756,6 +756,38 @@ def test_mind_block_stays_single_line() -> None:
     ok("情绪并进同一条「身上」，不另起一行")
 
 
+def test_a_day_says_something() -> None:
+    """一整天跑下来，饿、渴、尿意、便意都该真的出现过。
+
+    这条是从 tools/day_demo.py 里长出来的。之前所有断言都在验「某一刻
+    的数值关系」——饭前比饭后饿、11 小时不喝水会渴——每一项都过，但
+    饥饿的曲线标定得太钝（要 7.6 小时才越线，三餐间隔只有 5~6.5 小时），
+    于是这个人**一整天一次都没喊过饿**。单点全对，一天全空。
+
+    所以这里不看某一刻，看 24 小时里信号的种类和次数。
+    """
+    e = Physiology({"physio_disease_onset": False})
+    b = B.new_body(seed=20261103)
+    seen: Counter = Counter()
+    for _ in range(24):
+        e.step(b, hours=1.0)
+        io = ((b.get("derived") or {}).get("intero") or {})
+        for s, _v in (io.get("signals") or []):
+            if "饿" in s:
+                seen["hunger"] += 1
+            elif "干" in s or "渴" in s:
+                seen["thirst"] += 1
+            elif "厕所" in s:
+                seen["bladder"] += 1
+            elif "大号" in s:
+                seen["bowel"] += 1
+    for key, least in (("hunger", 2), ("thirst", 1), ("bladder", 2), ("bowel", 1)):
+        if seen[key] < least:
+            fail(f"一整天只说过 {seen[key]} 次 {key}（至少要 {least} 次）：{dict(seen)}")
+    ok(f"一天里有节奏（饿 {seen['hunger']} 次、渴 {seen['thirst']} 次、"
+       f"尿意 {seen['bladder']} 次、便意 {seen['bowel']} 次）")
+
+
 # ----------------------------------------------------------------------
 def main() -> None:
     test_catalog_integrity()
@@ -797,6 +829,7 @@ def main() -> None:
     test_mind_fades_with_hours()
     test_mind_shifts_pain_threshold()
     test_mind_block_stays_single_line()
+    test_a_day_says_something()
     print(f"\n全部通过（{PASS} 项）。")
 
 
