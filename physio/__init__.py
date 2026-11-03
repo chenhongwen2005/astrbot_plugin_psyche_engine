@@ -4,8 +4,12 @@
   psyche 管神经递质、环路与精神症状；
   physio 管器官功能、检验指标、疾病与药物。
 
-两者通过 Physiology.couple() 单向耦合，physio 改 psyche 的四个共享量，
-反向不写，避免任何一边调参时把另一边带崩。
+两者双向耦合，但各自只写对方的**共享量**：
+  Physiology.couple()   身体 -> 精神：炎症、皮质醇、儿茶酚胺、5-HT、
+                        BDNF、睡眠压力、甲状腺素；
+  Physiology.mind_set() 精神 -> 身体：情绪写进体征、痛觉阈值与精力负荷。
+
+两边都不去改对方的内部状态，避免任何一边调参时把另一边带崩。
 
 用法：
     from physio import Physiology, new_body, report

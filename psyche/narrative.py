@@ -1188,10 +1188,9 @@ def _emotion_min(st) -> str:
 
 
 def _memory_min(st) -> str:
-    mem = _mem.ensure(st)
-    if not mem:
+    it = _mem.latest(st)
+    if not it:
         return ""
-    it = max(mem, key=lambda x: float(x.get("clock", 0.0)))
     return (f"\n## 记忆\n- 你还记得：{str(it.get('text', ''))[:40]}"
             "（不必主动提，被问起再说）")
 
@@ -1321,9 +1320,14 @@ def render_card(st, dx: Diagnosis) -> str:
                  f"　心境 {_emo.ensure(st)['mood']:+.2f}")
     if tops:
         lines.append("分量    " + tops)
-    mem_n = len(_mem.ensure(st))
-    if mem_n:
-        lines.append(f"记忆    {mem_n} 条（工作记忆 {len(_mem.working_set(st))} 条）")
+    _ms = _mem.stats(st)
+    if _ms["total"]:
+        _ly = _ms["layers"]
+        lines.append(
+            f"记忆    {_ms['total']} 条（瞬时 {_ly.get('instant', 0)}｜短期 {_ly.get('short', 0)}"
+            f"｜较长期 {_ly.get('medium', 0)}｜长期 {_ly.get('long', 0)}）"
+            f"　工作记忆 {_ms['working']} 条"
+        )
 
     lines.append("")
     lines.append("── 类脑生化 ──")

@@ -30,6 +30,7 @@ CFG = {
     "default_preset": "healthy",
     "chronic_turns": 120,
     "stochastic": False,
+    "clock_mode": "virtual",
     "enable_circadian": False,
     "therapy_enabled": True,
 }

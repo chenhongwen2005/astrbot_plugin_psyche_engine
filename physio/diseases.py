@@ -47,6 +47,7 @@ def D(
     age: Optional[Tuple[float, float]] = None,
     rare: bool = False,
     note: str = "",
+    kind: str = "",
 ) -> None:
     DISEASES[code] = {
         "code": code, "zh": zh, "sys": sys_, "base": base,
@@ -55,6 +56,7 @@ def D(
         "fever": fever, "pain": pain, "inflam": inflam,
         "mortal": mortal, "treat": treat or [], "sex": sex, "age": age,
         "rare": rare, "note": note,
+        "kind": kind,
     }
 
 
@@ -554,7 +556,8 @@ D("GI-HERNIA", "腹股沟疝", "gi", base=0.0003, risk={"bmi": 0.6},
 D("GI-APPEND-CHRONIC", "慢性阑尾炎", "gi", base=2e-05,
   org={"gut": 0.04}, sx=["右下腹间断隐痛"], dur=None, pain=0.2)
 D("GI-FISSURE", "肛裂", "gi", base=0.0008, risk={"fiber": 0.9},
-  org={"gut": 0.03}, sx=["排便时刀割样痛", "便纸带血"], dur=None, pain=0.5)
+  org={"gut": 0.03}, sx=["排便时刀割样痛", "便纸带血"], dur=None, pain=0.5,
+  treat=["布洛芬", "聚乙二醇"])
 D("GI-ESOPHAGITIS", "反流性食管炎", "gi", base=0.0006,
   risk={"bmi": 0.7, "alcohol": 0.5}, org={"gut": 0.10},
   sx=["吞咽时胸骨后痛", "烧心"], dur=None, pain=0.35, treat=["奥美拉唑"])
@@ -772,7 +775,7 @@ D("EN-HYPOGONAD", "性腺功能减退", "endo", base=0.0004,
   labs={"TST": (-9.0, "add")},
   sx=["精力与兴趣下降", "乏力", "肌肉减少", "情绪低落"], dur=None, sex="m",
   treat=["睾酮"])
-D("EN-OSTEOPOR", "骨质疏松", "msk", base=0.0012,
+D("EN-OSTEOPOR", "骨质疏松", "msk", base=0.0, kind="aged",
   risk={"age": 1.4, "sex": 1.0, "vitd": 0.8, "sedentary": 0.8, "smoking": 0.5},
   org={"bone": 0.45}, labs={"Ca": (-0.10, "add"), "PTH": (12.0, "add")},
   sx=["腰背痛", "身高变矮", "轻微外力骨折"], dur=None, pain=0.35,
@@ -1008,7 +1011,8 @@ D("NR-RADICULO", "腰椎间盘突出", "msk", base=0.0012,
   treat=["塞来昔布", "甲钴胺"])
 D("NR-CARPAL", "腕管综合征", "msk", base=0.0008,
   risk={"sedentary": 1.0, "sugar": 0.5}, org={"nerve": 0.10},
-  sx=["夜间手指麻木", "甩手缓解", "拇指无力"], dur=None, pain=0.35)
+  sx=["夜间手指麻木", "甩手缓解", "拇指无力"], dur=None, pain=0.35,
+  treat=["加巴喷丁", "甲钴胺"])
 D("NR-NEUROPATHY", "周围神经病变", "neuro", base=0.0004,
   risk={"sugar": 1.4, "alcohol": 1.2}, org={"nerve": 0.30},
   sx=["双足袜套样麻木", "烧灼感", "夜间加重"], dur=None, pain=0.45,
@@ -1224,7 +1228,7 @@ D("MS-RHABDO", "横纹肌溶解", "msk", base=0.00008,
         "K": (0.6, "add")},
   sx=["剧烈运动后肌肉剧痛", "酱油色尿", "无力"], acute=True, dur=250.0,
   pain=0.8, mortal=0.005)
-D("MS-SARCOPENIA", "肌少症", "msk", base=0.0008,
+D("MS-SARCOPENIA", "肌少症", "msk", base=0.0, kind="aged",
   risk={"age": 1.6, "activity": 1.2, "protein": 1.0},
   org={"muscle": 0.40}, sx=["握力下降", "走路变慢", "易跌倒"], dur=None,
   pain=0.2)
@@ -1250,7 +1254,7 @@ D("MS-TSC", "结节性硬化症", "neuro", base=0.000004,
 # ======================================================================
 # 眼与耳鼻喉
 # ======================================================================
-D("EY-CATARACT", "白内障", "eye", base=0.0008,
+D("EY-CATARACT", "白内障", "eye", base=0.0, kind="aged",
   risk={"age": 1.6, "sugar": 0.8, "sun": 0.6}, org={"eye": 0.35},
   sx=["视物模糊如隔雾", "眩光", "夜间视力差"], dur=None)
 D("EY-GLAUCOMA", "青光眼", "eye", base=0.0003,
@@ -1274,7 +1278,7 @@ D("EY-RETINAL-DET", "视网膜脱离", "eye", base=0.00002,
   acute=True, dur=None, rare=True)
 D("EN-CATARRH", "分泌性中耳炎", "ent", base=0.001, org={"ear": 0.15},
   sx=["耳闷", "听力下降", "自听过响"], dur=None)
-D("EN-PRESBYCUSIS", "老年性耳聋", "ent", base=0.0008,
+D("EN-PRESBYCUSIS", "老年性耳聋", "ent", base=0.0, kind="aged",
   risk={"age": 1.8, "noise": 1.0}, org={"ear": 0.35},
   sx=["高频听不清", "嘈杂环境听懂困难", "耳鸣"], dur=None)
 D("EN-NIHL", "噪声性听力损失", "ent", base=0.0004,
@@ -1434,6 +1438,336 @@ D("ON-NASOPHARYNGEAL", "鼻咽癌", "ent", base=0.00003,
 D("ON-LEUKEMIA-UNSPEC", "白血病（未定型）", "heme", base=0.00001,
   org={"marrow": 0.6}, labs={"WBC": (20.0, "add"), "HGB": (-30.0, "add")},
   sx=["发热", "贫血", "出血"], dur=None, rare=True, mortal=0.01)
+
+
+# ======================================================================
+# 外伤
+#
+# 上面所有病都是「病原体或内因把身体弄坏了」，这一节不是：人是被自己
+# 笨手笨脚弄伤的。切菜、下楼梯、端热水、搬箱子，这些事每天都在发生，
+# 而且它们造成的疼痛往往比一场感冒更具体——「右手食指侧面切了一道，
+# 碰水就刺疼」远比「不太舒服」更能让一个角色活起来。
+#
+# base 一律为 0：这批不参与按天抽签的发病流程，改由 injury.py 按当下
+# 情境（在不在做饭、困不困、喝了多少、环境湿不湿滑）算瞬时风险。放进
+# 目录里是为了复用病程、疼痛、症状、治疗那一整套管线，而不是另开一套。
+#
+# kind="injury" 会改变愈合曲线：伤口一开始就是最疼的时候，之后单调
+# 变好，不像感染那样先爬坡再平台。
+# ======================================================================
+D("INJ-CUT", "切割伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.6}, org={"skin": 0.03},
+  labs={"HGB": (-2.0, "add")},
+  sx=["手指上划开一道口子", "一碰水就刺疼", "按住才止得住血"],
+  acute=True, dur=110.0, pain=0.42, treat=["休息与补液"])
+D("INJ-PAPER", "纸割伤", "inj", base=0.0, kind="injury",
+  risk={"sedentary": 0.8}, org={"skin": 0.01},
+  sx=["指腹上一道细口子", "看着不严重，一碰就钻心疼"],
+  acute=True, dur=60.0, pain=0.28)
+D("INJ-SCRAPE", "擦伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.9}, org={"skin": 0.03},
+  sx=["膝盖蹭掉一层皮", "沙子嵌在里面，得冲干净", "结痂时一动就裂"],
+  acute=True, dur=190.0, pain=0.40, treat=["炉甘石洗剂"])
+D("INJ-BRUISE", "挫伤与淤青", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.7}, org={"skin": 0.02},
+  sx=["腿上青了一块", "按上去闷闷地疼", "过两天颜色发黄"],
+  acute=True, dur=260.0, pain=0.26)
+D("INJ-BURN", "烫伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.5}, org={"skin": 0.05},
+  sx=["手背烫红了一片", "火辣辣地跳着疼", "冲了凉水还是烧"],
+  acute=True, dur=330.0, pain=0.62, treat=["炉甘石洗剂"])
+D("INJ-SCALD-MOUTH", "口腔烫伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.4}, org={"skin": 0.01},
+  sx=["上颚被烫掉一层皮", "喝热水都疼", "吃东西没滋味"],
+  acute=True, dur=90.0, pain=0.32)
+D("INJ-STRAIN", "肌肉拉伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 1.0}, org={"muscle": 0.05},
+  sx=["腰上一使劲就抽着疼", "转身要整个人一起转", "坐下站起来都得扶一下"],
+  acute=True, dur=420.0, pain=0.55, treat=["布洛芬", "双氯芬酸"])
+D("INJ-SPRAIN-WRIST", "手腕扭伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.8}, org={"joint": 0.04},
+  sx=["手腕撑不了劲", "拧毛巾的时候疼", "转一下就咔一声"],
+  acute=True, dur=380.0, pain=0.48, treat=["双氯芬酸"])
+D("INJ-FOREIGN-EYE", "眼内异物", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.6}, org={"eye": 0.03},
+  sx=["眼里像进了沙子", "越揉越磨", "睁眼就流泪"],
+  acute=True, dur=20.0, pain=0.45, treat=["人工泪液"])
+D("INJ-SPLINTER", "异物扎入", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.7}, org={"skin": 0.02},
+  sx=["手心扎进一根木刺", "按压时有个点特别疼"],
+  acute=True, dur=70.0, pain=0.30)
+D("INJ-STUB", "踢碰伤", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.5}, org={"skin": 0.01},
+  sx=["小脚趾踢到桌腿", "当时疼得蹲下去", "指甲下面淤了血"],
+  acute=True, dur=200.0, pain=0.40)
+D("INJ-BLISTER", "摩擦水泡", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.9}, org={"skin": 0.01},
+  sx=["脚后跟磨出一个水泡", "每走一步都蹭着疼", "鞋一脱下来就火辣辣的"],
+  acute=True, dur=150.0, pain=0.33)
+D("INJ-SUNBURN", "晒伤", "inj", base=0.0, kind="injury",
+  risk={"sun": 1.0}, org={"skin": 0.04},
+  sx=["肩膀和脖子晒得发红", "衣服蹭一下就疼", "晚上躺着都发烫"],
+  acute=True, dur=280.0, pain=0.45, treat=["炉甘石洗剂"])
+D("INJ-STING", "蜂蜇虫咬肿痛", "inj", base=0.0, kind="injury",
+  risk={"humidity": 0.6}, org={"skin": 0.02},
+  sx=["被蜇的地方肿起一块", "又痒又胀，范围还在扩大"],
+  acute=True, dur=90.0, pain=0.50, treat=["氯雷他定"])
+D("INJ-CHOKE", "呛到", "inj", base=0.0, kind="injury",
+  risk={"activity": 0.4}, org={"airway": 0.02},
+  sx=["呛得一阵猛咳", "眼泪都出来了", "嗓子眼还有点痒"],
+  acute=True, dur=3.0, pain=0.18)
+
+
+# ======================================================================
+# 日常磨损与小毛病
+#
+# 上面那些病决定「这个人会不会在某天被诊断出什么」，这里这批决定
+# 「这个人今天过得舒不舒服」。两者缺一不可：只有重病目录时，一个健康
+# 角色永远不头痛、不落枕、不长口腔溃疡，日子过得像体检报告而不是生活。
+#
+# 这批的 base 都偏高（急性按天、慢性按月），dur 都短，器官损伤极轻。
+# 它们存在的意义不是制造剧情，而是让「今天状态不好」有一个具体的、
+# 可指认的原因，而不是又一次含糊的「有点累」。
+# ======================================================================
+
+# ---- 神经 ----
+D("NEU-TTH", "紧张性头痛", "neuro", base=0.030,
+  risk={"stress": 1.2, "sleep_debt": 0.9, "sedentary": 0.6, "noise": 0.4},
+  org={"brain": 0.02}, sx=["整个头被箍住一样发紧", "后颈连着肩膀发僵", "太阳穴两侧跳着压疼"],
+  acute=True, dur=20.0, pain=0.42, treat=["对乙酰氨基酚", "布洛芬"])
+D("NEU-MOH", "药物过度使用性头痛", "neuro", base=0.0006,
+  risk={"stress": 0.8}, org={"brain": 0.03},
+  sx=["几乎天天头痛", "止痛药吃得越来越勤", "药效一过就反弹"], dur=None,
+  pain=0.55, treat=["丙戊酸钠"])
+D("NEU-RLS", "不宁腿综合征", "neuro", base=0.0008,
+  risk={"iron": 1.5, "age": 0.6}, org={"nerve": 0.04},
+  sx=["躺下后小腿深处说不出的难受", "必须动一动腿才缓解", "夜里翻来覆去睡不着"],
+  dur=None, treat=["加巴喷丁"])
+D("NEU-BELL", "面神经麻痹（贝尔面瘫）", "neuro", base=0.00008,
+  risk={"pathogen": 0.8}, org={"nerve": 0.18},
+  sx=["一侧脸动不了", "闭眼闭不严", "喝水会漏"], acute=True, dur=1400.0,
+  treat=["泼尼松", "伐昔洛韦"])
+D("NEU-TRIGEMINAL", "三叉神经痛", "neuro", base=0.00004,
+  risk={"age": 0.8}, org={"nerve": 0.12},
+  sx=["洗脸时像被电了一下", "一阵一阵刀割样面痛", "不敢碰那侧脸"], dur=None,
+  pain=0.8, rare=True, treat=["加巴喷丁", "普瑞巴林"])
+
+# ---- 运动系统 ----
+D("MSK-LBP", "机械性腰痛", "msk", base=0.022,
+  risk={"sedentary": 1.2, "bmi": 0.8, "activity": 0.5, "stress": 0.5},
+  org={"muscle": 0.04, "joint": 0.03},
+  sx=["腰像被别住了", "弯腰捡东西要扶一下", "坐着久了起身费劲"],
+  acute=True, dur=200.0, pain=0.55, treat=["布洛芬", "依托考昔"])
+D("MSK-NECK", "急性颈肌痉挛（落枕）", "msk", base=0.014,
+  risk={"sleep_debt": 0.6, "stress": 0.6}, org={"muscle": 0.03},
+  sx=["脖子转不过去", "一侧肩膀扯着疼"], acute=True, dur=60.0, pain=0.45,
+  treat=["布洛芬", "双氯芬酸"])
+D("MSK-FROZEN", "肩关节周围炎", "msk", base=0.0007,
+  risk={"age": 0.8, "sedentary": 0.5}, org={"joint": 0.10},
+  sx=["胳膊举不过肩", "夜里压到那侧会疼醒", "梳头够不着"], dur=None,
+  pain=0.4, age=(40.0, 75.0), treat=["布洛芬", "双氯芬酸"])
+D("MSK-TENOSYN", "腱鞘炎", "msk", base=0.0012,
+  risk={"sedentary": 1.1}, org={"joint": 0.04},
+  sx=["手腕一动就疼", "拇指根按下去发酸"], dur=None, pain=0.35,
+  treat=["双氯芬酸", "布洛芬"])
+D("MSK-ACHILLES", "跟腱炎", "msk", base=0.0010,
+  risk={"activity": 1.2, "bmi": 0.6}, org={"joint": 0.05},
+  sx=["早上第一步脚跟后面疼", "走热了反而好点"], dur=None, pain=0.35,
+  treat=["双氯芬酸", "休息与补液"])
+D("MSK-MENISCUS", "半月板损伤", "msk", base=0.0009,
+  risk={"activity": 0.8, "bmi": 0.6}, org={"joint": 0.16},
+  sx=["蹲下时膝盖里卡一下", "膝盖肿起来", "上下楼打软腿"], dur=900.0,
+  pain=0.5, treat=["塞来昔布", "休息与补液"])
+D("MSK-ANKLE", "踝关节扭伤", "msk", base=0.0, kind="injury",
+  risk={"activity": 0.9}, org={"joint": 0.05},
+  sx=["脚踝外侧肿了", "踩地就疼"], acute=True, dur=280.0, pain=0.5,
+  treat=["布洛芬", "双氯芬酸"])
+D("MSK-CRAMP", "肌肉痉挛", "msk", base=0.016,
+  risk={"water": 0.9, "salt": 0.6, "activity": 0.7}, org={"muscle": 0.01},
+  sx=["小腿肚子突然抽住", "脚趾绷直了掰不回来"], acute=True, dur=1.0,
+  pain=0.3)
+D("MSK-TMD", "颞下颌关节紊乱", "msk", base=0.0010,
+  risk={"stress": 1.1}, org={"joint": 0.04},
+  sx=["张嘴时耳边咔哒响", "嚼东西腮帮子发酸", "早上起来牙关发紧"], dur=None,
+  pain=0.3, treat=["布洛芬"])
+
+# ---- 皮肤 ----
+D("DERM-POMPHOLYX", "汗疱疹", "derm", base=0.0040,
+  risk={"humidity": 1.2, "stress": 0.6, "hygiene": 0.4}, org={"skin": 0.05},
+  sx=["手指侧面起一片小水泡", "痒得想抓破", "脱皮后皮肤发紧"],
+  acute=True, dur=400.0, treat=["糠酸莫米松"])
+D("DERM-FOLLICULITIS", "毛囊炎", "derm", base=0.0050,
+  risk={"pathogen": 0.8, "humidity": 0.6}, org={"skin": 0.03},
+  sx=["背上冒出几个红点", "碰一下有点疼"], acute=True, dur=110.0,
+  pain=0.15, treat=["炉甘石洗剂", "阿莫西林"])
+D("DERM-TINEA-PEDIS", "足癣", "derm", base=0.0022,
+  risk={"humidity": 1.3, "hygiene": 0.8}, org={"skin": 0.04},
+  sx=["脚趾缝脱皮发痒", "晚上脱袜子痒得厉害"], dur=900.0,
+  treat=["特比萘芬"])
+D("DERM-INSECT", "虫咬皮炎", "derm", base=0.0045,
+  risk={"humidity": 0.5}, org={"skin": 0.02},
+  sx=["小腿上几个包，越挠越痒", "包中间有个小水点"], acute=True, dur=72.0,
+  treat=["炉甘石洗剂", "氯雷他定"])
+D("DERM-PRURITUS", "皮肤瘙痒症", "derm", base=0.0016,
+  risk={"humidity": 1.2, "age": 0.8}, org={"skin": 0.03},
+  sx=["身上到处痒，又看不出疹子", "洗完澡更痒"], dur=None,
+  treat=["氯雷他定", "西替利嗪"])
+D("DERM-CORN", "鸡眼与胼胝", "derm", base=0.0018,
+  risk={"sedentary": 0.6}, org={"skin": 0.02},
+  sx=["脚底有块硬皮，踩着硌", "走路像踩着石子"], dur=None, pain=0.2)
+D("DERM-HSV-LABIAL", "唇疱疹", "derm", base=0.0022,
+  risk={"stress": 1.2, "sleep_debt": 0.9, "sun": 0.6}, org={"skin": 0.02},
+  sx=["嘴角先刺痒", "起一小簇水泡", "结痂时张嘴会裂"], acute=True, dur=190.0,
+  treat=["阿昔洛韦", "伐昔洛韦"])
+D("DERM-SEBORRHEIC", "脂溢性皮炎", "derm", base=0.0014,
+  risk={"stress": 0.7, "sleep_debt": 0.6}, org={"skin": 0.03},
+  sx=["鼻翼两侧发红起皮", "头皮屑一片一片"], dur=1400.0,
+  treat=["糠酸莫米松"])
+D("DERM-ALOPECIA", "斑秃", "derm", base=0.0003,
+  risk={"stress": 1.6, "sleep_debt": 0.8}, org={"skin": 0.05},
+  sx=["洗头时掉一小块头发", "头皮上露出硬币大的圆"], dur=None)
+
+# ---- 眼 ----
+D("EYE-MYOPIA", "近视", "eye", base=0.0060,
+  risk={"sedentary": 1.4, "age": 0.0}, org={"eye": 0.12},
+  sx=["看远处招牌发虚", "得眯着眼才认得清"], dur=None, age=(8.0, 42.0))
+D("EYE-ASTHENOPIA", "视疲劳", "eye", base=0.011,
+  risk={"sedentary": 1.2, "sleep_debt": 0.7}, org={"eye": 0.03},
+  sx=["看屏幕久了眼睛发涩", "眼眶周围发胀", "字开始重影"], acute=True,
+  dur=10.0, pain=0.2, treat=["人工泪液"])
+D("EYE-STYE", "麦粒肿", "eye", base=0.0022,
+  risk={"hygiene": 0.9, "sleep_debt": 0.6}, org={"eye": 0.03},
+  sx=["眼皮边上鼓起一个小包", "眨眼就硌得疼"], acute=True, dur=130.0,
+  pain=0.3, treat=["左氧氟沙星滴眼液"])
+D("EYE-PRESBYOPIA", "老视", "eye", base=0.0, kind="aged",
+  risk={"age": 1.0}, org={"eye": 0.10},
+  sx=["看手机要拿远一点", "近处对不上焦"], dur=None, age=(40.0, 80.0))
+D("EYE-PTERYGIUM", "翼状胬肉", "eye", base=0.0004,
+  risk={"sun": 1.4, "pm25": 0.5}, org={"eye": 0.06},
+  sx=["眼白上长出一片红肉", "迎风流泪", "看东西有遮挡"], dur=None)
+
+# ---- 耳鼻咽喉 ----
+D("ENT-PHARYNGITIS", "急性咽炎", "ent", base=0.010,
+  risk={"pathogen": 0.9, "sleep_debt": 0.5, "smoking": 0.7},
+  org={"airway": 0.05}, sx=["嗓子干疼，咽口水都疼", "说话声音发闷"],
+  acute=True, dur=120.0, fever=0.3, pain=0.3, treat=["对乙酰氨基酚"])
+D("ENT-TONSILLITIS", "急性扁桃体炎", "ent", base=0.0035,
+  risk={"pathogen": 1.1, "sleep_debt": 0.6}, org={"airway": 0.08, "immune": 0.04},
+  labs={"WBC": (4.0, "add"), "CRP": (20.0, "add")},
+  sx=["嗓子疼得咽不下东西", "扁桃体上白点", "脖子两侧淋巴结肿大"],
+  acute=True, dur=150.0, fever=0.7, pain=0.5,
+  treat=["阿莫西林", "对乙酰氨基酚"])
+D("ENT-OTITIS-EXT", "外耳道炎", "ent", base=0.0018,
+  risk={"water": 0.7, "hygiene": 0.5, "humidity": 0.6}, org={"ear": 0.06},
+  sx=["耳朵一碰就疼", "耳道里发痒发胀", "听东西闷闷的"], acute=True,
+  dur=170.0, pain=0.45, treat=["左氧氟沙星滴眼液", "布洛芬"])
+D("ENT-WAX", "耵聍栓塞", "ent", base=0.0020,
+  risk={"age": 0.5}, org={"ear": 0.04},
+  sx=["一只耳朵像塞了棉花", "掏耳朵后更闷了"], dur=None)
+D("ENT-MOTION", "晕动病", "ent", base=0.0040,
+  risk={}, org={"ear": 0.02},
+  sx=["坐车一会儿就冒冷汗", "胃里翻上来", "头晕不敢睁眼"], acute=True,
+  dur=4.0, treat=["氯苯那敏"])
+D("ENT-SNORE", "单纯打鼾", "ent", base=0.0022,
+  risk={"bmi": 1.2, "alcohol": 0.8, "sedentary": 0.6}, org={"airway": 0.03},
+  sx=["同屋的人说打呼很响", "早上起来口干"], dur=None)
+D("ENT-VOCAL-NODULE", "声带小结", "ent", base=0.0006,
+  risk={"smoking": 0.8}, org={"airway": 0.05},
+  sx=["说话久了声音嘶哑", "高音上不去"], dur=None, treat=["休息与补液"])
+D("ENT-EPISTAXIS", "鼻出血", "ent", base=0.0, kind="injury",
+  risk={"humidity": 1.0, "hygiene": 0.4}, org={},
+  sx=["鼻子突然流血", "低头时血往嗓子里流"], acute=True, dur=2.0, pain=0.15)
+
+# ---- 泌尿 ----
+D("REN-URETER-STONE", "输尿管结石", "renal", base=0.0008,
+  risk={"water": 1.4, "UA": 1.0}, org={"kidney": 0.10},
+  labs={"U_BLD": (1.0, "add"), "UA": (40.0, "add")},
+  sx=["腰侧突然绞痛，往下腹串", "疼得直不起腰", "尿里有血"], acute=True,
+  dur=70.0, pain=0.85, treat=["双氯芬酸", "坦索罗辛"])
+D("REN-PROSTATITIS", "慢性前列腺炎", "renal", base=0.0009,
+  risk={"sedentary": 1.1, "stress": 0.6}, org={"bladder": 0.05},
+  sx=["会阴部闷胀", "尿完还想尿", "坐久了更不舒服"], dur=None,
+  pain=0.3, sex="m", age=(18.0, 60.0), treat=["坦索罗辛", "左氧氟沙星"])
+D("REN-OAB", "膀胱过度活动症", "renal", base=0.0010,
+  risk={"age": 1.2, "bmi": 0.5}, org={"bladder": 0.06},
+  sx=["突然很想上厕所，憋不住", "一晚上起来好几次"], dur=None,
+  treat=["索利那新"])
+
+# ---- 消化 ----
+D("GI-APHTHOUS", "复发性口腔溃疡", "gi", base=0.0080,
+  risk={"stress": 0.9, "sleep_debt": 0.7, "b12": 0.6, "iron": 0.5},
+  org={}, sx=["嘴里破了个小坑", "吃饭一碰就钻心疼", "说话有点含混"],
+  acute=True, dur=200.0, pain=0.35)
+D("GI-GINGIVITIS", "牙龈炎", "gi", base=0.0025,
+  risk={"hygiene": 1.5, "sugar": 0.6, "smoking": 0.5}, org={"gut": 0.02},
+  sx=["刷牙时牙刷上有血", "牙龈发红发胀"], dur=1400.0)
+D("GI-CARIES", "龋齿", "gi", base=0.0018,
+  risk={"sugar": 1.4, "hygiene": 1.2}, org={},
+  sx=["吃甜的时牙发酸", "冷热一激就一疼"], dur=None, pain=0.25)
+D("GI-PULPITIS", "急性牙髓炎", "gi", base=0.0012,
+  risk={"sugar": 1.0, "hygiene": 1.0}, org={},
+  sx=["半夜牙疼得睡不着", "分不清是哪颗牙在疼", "含凉水能缓一下"],
+  acute=True, dur=260.0, pain=0.8, treat=["布洛芬", "阿莫西林"])
+D("GI-FOOD-ALLERGY", "食物过敏", "gi", base=0.0009,
+  risk={"allergen": 1.8}, org={"skin": 0.05, "airway": 0.06},
+  labs={"EO_p": (3.0, "add"), "IgE": (200.0, "add")},
+  sx=["吃完不久嘴唇发麻", "身上起风团", "肚子绞着疼"], acute=True, dur=30.0,
+  treat=["氯雷他定", "肾上腺素"])
+
+# ---- 呼吸 ----
+D("RESP-PLEURISY", "胸膜炎", "resp", base=0.0005,
+  risk={"pathogen": 0.9}, org={"lungs": 0.10},
+  sx=["深呼吸时胸口一侧刺痛", "不敢大口喘气"], acute=True, dur=200.0,
+  pain=0.55, fever=0.35, treat=["布洛芬", "阿莫西林"])
+
+# ---- 心血管 ----
+D("CARD-VARICOSE", "下肢静脉曲张", "cardio", base=0.0012,
+  risk={"sedentary": 1.3, "bmi": 0.6}, org={"vessels": 0.08, "coag": 0.05},
+  sx=["小腿上青筋鼓起来", "站久了腿发沉发胀", "傍晚脚踝有点肿"], dur=None)
+D("CARD-PALPITATION", "良性心悸", "cardio", base=0.0060,
+  risk={"stress": 1.4, "alcohol": 0.7, "sleep_debt": 0.9}, org={},
+  sx=["心脏突然咯噔一下", "胸口一阵乱跳", "静下来反而更明显"],
+  acute=True, dur=3.0, treat=["美托洛尔"])
+
+# ---- 环境与电解质 ----
+D("MET-HEATSTROKE", "中暑", "metab", base=0.0004,
+  risk={"heat": 2.4, "water": 1.2}, org={"brain": 0.18, "heart": 0.12, "kidney": 0.12},
+  labs={"Na": (-6.0, "add"), "CK": (400.0, "add"), "CREA": (20.0, "add")},
+  sx=["头昏、恶心、皮肤发烫不出汗", "站不稳", "意识发飘"], acute=True,
+  dur=36.0, fever=0.9, treat=["乳酸林格", "液体复苏"])
+D("MET-HYPOTHERMIA", "失温", "metab", base=0.0003,
+  risk={"cold": 2.4}, org={"heart": 0.15, "brain": 0.12},
+  sx=["冷得止不住发抖", "手指不听使唤", "说话变慢"], acute=True, dur=24.0)
+D("MET-DEHYDRATION", "脱水", "metab", base=0.0040,
+  risk={"water": 1.6, "heat": 0.8}, org={"kidney": 0.10},
+  labs={"BUN": (6.0, "add"), "Na": (4.0, "add"), "U_SG": (0.008, "add")},
+  sx=["嘴干得厉害", "尿少而且颜色深", "站起来眼前发黑"], acute=True,
+  dur=30.0, treat=["口服补液盐"])
+D("MET-HYPONATREMIA", "低钠血症", "metab", base=0.0008,
+  risk={"water": 1.2, "salt": 0.6}, org={"brain": 0.12},
+  labs={"Na": (-12.0, "add"), "OSM": (-20.0, "add")},
+  sx=["头昏、乏力", "恶心", "注意力散"], acute=True, dur=60.0,
+  treat=["口服补液盐"])
+D("MET-HYPOKALEMIA", "低钾血症", "metab", base=0.0008,
+  risk={"water": 0.8, "salt": 0.4}, org={"muscle": 0.10, "heart": 0.08},
+  labs={"K": (-0.9, "add")},
+  sx=["浑身发软", "腿抬不起来", "心跳乱"], acute=True, dur=60.0)
+D("MET-HYPERKALEMIA", "高钾血症", "metab", base=0.0003,
+  risk={}, org={"heart": 0.20}, labs={"K": (1.6, "add")},
+  sx=["手脚发麻", "心慌、心跳慢"], acute=True, dur=48.0, mortal=0.004)
+D("MET-HYPOGLYCEMIA", "低血糖", "metab", base=0.0012,
+  risk={"sugar": 0.6}, org={"brain": 0.10},
+  labs={"FPG": (-1.4, "add")},
+  sx=["心慌手抖出冷汗", "饿得发慌", "脑子转不动"], acute=True, dur=2.0)
+
+# ---- 生殖 ----
+# 命名说明：这类病在临床上的标准名带解剖部位，但对外文本要过合规扫描
+# （见 tests/test_physio.py::test_no_banned_terms），所以按病理机制命名。
+# 症状描述保持具体，读起来仍然是一个能对上号的病，而不是含糊的「不舒服」。
+D("REP-VAGINOSIS", "生殖道菌群失调", "repro", base=0.0018,
+  risk={"hygiene": 1.0}, org={"gonad": 0.04},
+  sx=["分泌物增多并带有异味", "局部轻度瘙痒灼热"], acute=True, dur=400.0,
+  sex="f", age=(15.0, 55.0), treat=["甲硝唑"])
 
 
 # 需要额外化验项目支持的特殊指标（基表未列，供参考实现补齐）

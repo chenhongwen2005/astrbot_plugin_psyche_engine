@@ -144,7 +144,7 @@ def test_response_and_commands() -> None:
 def test_physio_commands() -> None:
     """身体侧指令：每条都要有输出、不抛异常，且体检要分条发。"""
     mod, ev_mod, _pr, st_mod = _load()
-    plugin = mod.PsycheEnginePlugin(st_mod.Context(), {"physio_hours_per_turn": 24})
+    plugin = mod.PsycheEnginePlugin(st_mod.Context(), {"physio_hours_per_turn": 24, "clock_mode": "virtual"})
 
     async def _collect(msg: str) -> list[str]:
         e = ev_mod.AstrMessageEvent(msg, umo="test:FriendMessage:phys")

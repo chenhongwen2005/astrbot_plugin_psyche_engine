@@ -122,6 +122,16 @@
     "default": true,
     "hint": "关闭后只保留精神/神经系统，不推进身体、不注入身体段落"
   },
+  "clock_mode": {
+    "description": "时间来源：真实北京时间 / 虚拟时间",
+    "type": "string",
+    "default": "real",
+    "options": [
+      "real",
+      "virtual"
+    ],
+    "hint": "real：按真实流逝推进，hour_of_day 就是北京钟点，凌晨聊天它知道「很晚」；virtual：每轮固定推进「每轮小时数」，几十轮就能看到长期后果。real 下「每轮小时数」不生效"
+  },
   "physio_hours_per_turn": {
     "description": "每一轮对话推进多少虚拟小时",
     "type": "int",

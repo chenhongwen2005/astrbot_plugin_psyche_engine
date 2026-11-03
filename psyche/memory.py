@@ -1,4 +1,4 @@
-"""类脑记忆：情景记忆的编码、巩固、检索与遗忘。
+"""类脑记忆：编码、分层、巩固、检索与遗忘（SQLite 版）。
 
 为什么要有这一层
     注入块只描述「此刻」。没有记忆的角色，每轮都像刚认识对方：
@@ -6,34 +6,96 @@
     给的是连续性，不是知识库——它只回答一个问题：这句话勾起了哪几件
     事，那些事当时是什么滋味。
 
-四条约束
-    1. 只走虚拟时钟。新鲜度、衰减、遗忘都按轮次推进的小时数算。
-       按墙钟算的话，一场紧凑的对话里所有记忆都「刚刚发生」。
-    2. 存原文，但截断。每条 160 字上限，条数上限默认 240；超限淘汰
-       强度最低、最旧的，不静默丢最新的。
-    3. 检索要能中中文。没有分词器，用 2-gram 重叠加标签匹配，
-       不做语义理解——宁可召回少一点，也不要凭关键词乱认亲。
-    4. 遗忘是功能不是缺陷。强度掉到阈值以下就删，巩固过的活得久。
+四层怎么分工
+    瞬时   刚说过的话。容量 9，被挤出去时若够重就沉到短期，否则丢掉。
+    短期   一天量级。半衰期 24 小时，命中两次或巩固到 0.45 升到较长期。
+    较长期 几周量级。半衰期 14 天，被反复想起且跨度够长才升长期。
+    长期   近永久。不再衰减，只在超过硬上限时按「被想起次数 × 强度」淘汰。
+
+    分层的实质是晋升规则，不是四个抽屉。写进哪一层由「它被想起来的
+    次数」和「它是不是人生节点」共同决定，不是由时间决定——三年前
+    一句寒暄不该留在长期，昨天一场葬礼不该停在瞬时。
+
+存储
+    表与索引见 psyche/memdb.py。这里只负责把状态对象和库接起来、
+    把检索结果渲染成给模型看的一段话。
+
+两条约束
+    1. 时间一律走虚拟时钟（vclock）。真实时钟模式下它就是真实经过的
+       小时数，虚拟模式下是每轮累加的小时数——两种模式都能算年龄。
+    2. 检索不做语义理解。中文 2-gram 加 FTS5 bm25，宁可少召回，也不
+       凭关键词乱认亲。
 """
 
 from __future__ import annotations
 
-import math
-import re
-import zlib
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import memdb as _mdb
 from .appraisal import DOMAIN_KEYS
 
-TEXT_MAX = 160          # 单条记忆保留的字数
-DEFAULT_CAP = 240       # 单会话条数上限
-HALF_LIFE_H = 720.0     # 未巩固记忆的半衰期（30 天）
-FORGET_AT = 0.06        # 强度低于此值即遗忘
-WORKING_CAP = 4         # 工作记忆基础容量（项）
+TEXT_MAX = 160
+WORKING_CAP = 4
 
 _TAG_ZH = {k: v.split("（")[0] for k, v in DOMAIN_KEYS.items()}
+LAYER_ZH = _mdb.LAYER_ZH
 
 
+# ----------------------------------------------------------------------
+# 绑定
+# ----------------------------------------------------------------------
+def bind(st, path: str, umo: str, cfg: Optional[Dict[str, Any]] = None,
+         db=None) -> None:
+    """给状态挂上记忆库。由 Engine.load 调用，一个会话一个 umo。
+
+    db 可以外部传入：引擎只持有一个连接，多个会话靠 umo 隔离，
+    否则每开一个群就多一条 sqlite 连接。
+    """
+    st._memdb = db if db is not None else _mdb.MemDB(path, cfg or {})
+    st._umo = umo
+
+
+def detach(st) -> None:
+    db = getattr(st, "_memdb", None)
+    if db is not None:
+        try:
+            db.close()
+        except Exception:
+            pass
+    st._memdb = None
+    st._umo = ""
+
+
+def _umo(st) -> str:
+    u = getattr(st, "_umo", "") or ""
+    if u:
+        return u
+    # 没有显式绑定时的退路：按创建时间与轮次凑一个稳定键，
+    # 至少不会把两个会话的记忆混在一起。
+    return f"anon:{id(st)}"
+
+
+def _db(st):
+    db = getattr(st, "_memdb", None)
+    if db is None:
+        return None
+    umo = _umo(st)
+    if not db.migrated(umo):
+        legacy = getattr(st, "mem", None) or []
+        if legacy:
+            db.migrate(umo, legacy)      # 旧 JSON 存档一次性搬进表
+        else:
+            db.mark_migrated(umo)
+        try:
+            st.mem = []                  # 主存已经不在 JSON 里了
+        except Exception:
+            pass
+    return db
+
+
+# ----------------------------------------------------------------------
+# 小工具
+# ----------------------------------------------------------------------
 def _clip(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
 
@@ -47,43 +109,8 @@ def _now_clock(st, hours: float = 0.0) -> float:
     return float(st.meta.get("turn", 0)) * max(1.0, hours)
 
 
-# ---------------------------------------------------------------------------
-# 分词：中文 2-gram + 拉丁词
-# ---------------------------------------------------------------------------
-_ASCII = re.compile(r"[a-z0-9]+")
-_CJK = re.compile(r"[\u4e00-\u9fff]+")
-
-
-def _tokens(text: str) -> set:
-    s = (text or "").lower()
-    out = set(_ASCII.findall(s))
-    for run in _CJK.findall(s):
-        if len(run) == 1:
-            out.add(run)
-        for i in range(len(run) - 1):
-            out.add(run[i:i + 2])
-    return out
-
-
-def _overlap(a: set, b: set) -> float:
-    if not a or not b:
-        return 0.0
-    inter = len(a & b)
-    return inter / math.sqrt(len(a) * len(b))
-
-
-# ---------------------------------------------------------------------------
-# 存取
-# ---------------------------------------------------------------------------
-def ensure(st) -> List[Dict[str, Any]]:
-    mem = getattr(st, "mem", None)
-    if not isinstance(mem, list):
-        mem = []
-        st.mem = mem
-    return mem
-
-
-def _tags(st, ap: Dict[str, Any] | None, emo_state: Dict[str, float] | None) -> List[str]:
+def _tags(st, ap: Dict[str, Any] | None,
+          emo_state: Dict[str, float] | None) -> List[str]:
     tags: List[str] = []
     ap = ap or {}
     for k, v in (ap.get("domains") or {}).items():
@@ -97,158 +124,119 @@ def _tags(st, ap: Dict[str, Any] | None, emo_state: Dict[str, float] | None) -> 
     return tags[:6]
 
 
-def _encode(st, text: str, ap: Dict[str, Any] | None,
-            emo_state: Dict[str, float] | None, hours: float) -> Optional[Dict[str, Any]]:
-    text = (text or "").strip()
-    if len(text) < 3:
-        return None
-    mem = ensure(st)
-    key = text[:TEXT_MAX]
+def _dims(emo_state: Optional[Dict[str, float]]) -> Tuple[float, float, str]:
+    if not emo_state:
+        return 0.0, 0.5, ""
+    from .emotion import dimensions
 
-    # 短时间内重复同一句话不重复记（刷屏保护）；但重复发生说明它重要，
-    # 强度加一点。
-    for item in mem[-4:]:
-        if item.get("text") == key:
-            item["s"] = min(2.0, float(item.get("s", 1.0)) + 0.25)
-            item["clock"] = _now_clock(st, hours)
-            return item
-
-    e = emo_state or {}
-    va = 0.0
-    ar = 0.5
-    if e:
-        from .emotion import dimensions   # 延迟导入，避免与 emotion 互相依赖
-
-        d = dimensions(e)
-        va, ar = d["valence"], d["arousal"]
-
-    turn = int(st.meta.get("turn", 0))
-    item = {
-        # crc32 而不是内置 hash：后者带进程级随机盐，重启一次 id 全变
-        "id": f"m{turn}_{zlib.crc32(key.encode('utf-8')) % 100000}",
-        "text": key,
-        "turn": turn,
-        "clock": round(_now_clock(st, hours), 2),
-        "va": round(va, 3),
-        "ar": round(ar, 3),
-        "tags": _tags(st, ap, emo_state),
-        "s": round(min(2.0, 1.0 + abs(va) * ar * 1.6), 2),
-        "hits": 0,
-        "con": 0.0,
-    }
-    mem.append(item)
-    _trim(st, mem)
-    return item
+    d = dimensions(emo_state)
+    return float(d["valence"]), float(d["arousal"]), str(d.get("dominant", ""))
 
 
-def _trim(st, mem: List[Dict[str, Any]]) -> None:
-    cap = int(st.meta.get("memory_cap") or DEFAULT_CAP)
-    if len(mem) <= cap:
-        return
-    # 淘汰分：巩固程度低、强度低、越旧的越先走。
-    # 但最近的几条要保护起来——巩固是累积的，旧条目天然分高，
-    # 只按分淘汰会把刚发生的事删掉，留下半年前一句无关紧要的话。
-    def score(it: Dict[str, Any]) -> float:
-        return float(it.get("s", 1.0)) * (1.0 + float(it.get("con", 0.0)) * 2.0) \
-            + float(it.get("hits", 0)) * 0.15
-
-    protect = {id(it) for it in mem[-8:]}
-    need = len(mem) - cap
-    cand = sorted([it for it in mem if id(it) not in protect], key=score)
-    drop = {id(it) for it in cand[:need]}
-    mem[:] = [it for it in mem if id(it) not in drop]
-    if len(mem) > cap:
-        # 受保护的本身就超过上限（上限调到极小），退化为按分淘汰
-        cand = sorted(mem, key=score)
-        drop = {id(it) for it in cand[:len(mem) - cap]}
-        mem[:] = [it for it in mem if id(it) not in drop]
-
-
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # 演化
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 纯寒暄。它们连「短期」都不该占位：问一句「在吗」不值得成为回忆。
+_TRIVIAL = frozenset({
+    "在吗", "在么", "在不在", "嗯", "嗯嗯", "哦", "噢", "好", "好的", "行",
+    "哈哈", "哈哈哈", "呵呵", "嘿嘿", "你好", "您好", "早", "早安", "晚安",
+    "没事", "没什么", "不知道", "随便聊聊", "聊聊", "聊聊天", "没事干",
+    "对", "是的", "收到", "ok", "OK",
+})
+
+
+def _worth(text: str, va: float, tags: List[str]) -> bool:
+    """这句话值不值得记。
+
+    寒暄不进记忆——不是嫌它短，是它没有任何可召回的内容，而容量 9 的
+    瞬时层六句寒暄就能把「我爸住院了」顶出去。事实陈述则一律放行：
+    「我住在成都」没有情绪、没有标签，但它正是最该被记住的那类东西。
+    """
+    t = (text or "").strip(" 。！？…~,.!?、")
+    if not t or t in _TRIVIAL:
+        return False
+    if tags or abs(va) >= 0.20:
+        return True
+    return len(t) >= 5
+
+
+def _significance(va: float, ar: float, tags: List[str], text: str) -> float:
+    """显著度 0.25~2.0。基线 0.30：中性短句过不了晋升门槛，会被丢掉。"""
+    s = 0.30 + abs(va) * ar * 1.4 + 0.08 * min(3, len(tags))
+    if _mdb.is_milestone(text):
+        s += 0.25
+    return min(2.0, s)
+
+
 def step(st, text: str, ap: Dict[str, Any] | None, hours: float,
          emo_state: Dict[str, float] | None = None,
          cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """推进一轮记忆：衰减 → 巩固 → 编码 → 遗忘。"""
-    mem = ensure(st)
+    """推进一轮记忆：衰减 → 编码 → 晋升 → 淘汰。"""
+    db = _db(st)
+    if db is None:
+        return {"encoded": False, "forgotten": 0, "total": 0}
+    umo = _umo(st)
     hours = max(0.02, min(72.0, float(hours or 1.0)))
+    va, ar, dom = _dims(emo_state)
+    clock = _now_clock(st, hours)
+    turn = int(st.meta.get("turn", 0))
 
-    # 1. 强度衰减。巩固程度越高衰减越慢（皮层表征比海马痕迹稳）。
-    for it in mem:
-        con = float(it.get("con", 0.0))
-        half = HALF_LIFE_H * (1.0 + 1.5 * con)
-        it["s"] = float(it.get("s", 1.0)) * (0.5 ** (hours / half))
+    gone = db.decay(umo, hours, cur_va=va)
 
-    # 2. 巩固：睡眠时段更快，被检索过的也更快
-    sleep_h = float(((getattr(st, "body", None) or {}).get("life") or {}).get("sleep_h", 7.0) or 7.0)
-    sleep_w = 1.0 + min(1.0, max(0.0, sleep_h) / 8.0)
-    for it in mem:
-        gain = 0.004 * (hours / 6.0) * sleep_w * (1.0 + 0.2 * float(it.get("hits", 0)))
-        it["con"] = _clip(float(it.get("con", 0.0)) + gain)
+    made = None
+    body = (text or "").strip()
+    tags = _tags(st, ap, emo_state)
+    if len(body) >= 3 and _worth(body, va, tags):
+        made = db.encode(
+            umo, body, turn=turn, vclock=clock, s=_significance(va, ar, tags, body),
+            va=va, ar=ar, tags=tags, emo=dom, layer="instant",
+        )
+        # 危机与不可逆的人生节点不该在工作记忆里等下一轮：直接压到
+        # 该去的那一层，否则下一句闲聊就能把它们挤出容量 9。
+        # 这里绕过晋升链是有意的——「确诊」「葬礼」不需要被想起来五次
+        # 才算长期记忆。
+        if made and not made.get("reinforced"):
+            if (ap or {}).get("crisis") or _mdb.is_milestone_core(body):
+                db._set_layer(int(made["id"]), "long", pinned=True)
+            elif _mdb.is_milestone(body):
+                db._set_layer(int(made["id"]), "short")
+                db.touch(int(made["id"]), hit=False, con_gain=0.25)
 
-    # 3. 编码
-    made = _encode(st, text, ap, emo_state, hours)
+    moved = db.promote(umo, now_vclock=clock)
+    db.trim_all(umo)
+    return {
+        "encoded": made is not None,
+        "reinforced": bool(made and made.get("reinforced")),
+        "forgotten": gone,
+        "promoted": moved,
+        "total": db.total(umo),
+    }
 
-    # 4. 遗忘
-    before = len(mem)
-    mem[:] = [it for it in mem if float(it.get("s", 1.0)) >= FORGET_AT]
-    return {"encoded": made is not None, "forgotten": max(0, before - len(mem)),
-            "total": len(mem)}
 
-
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # 检索
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 def search(st, query: str, limit: int = 5,
            emo_state: Dict[str, float] | None = None,
-           before_turn: Optional[int] = None) -> List[Tuple[Dict[str, Any], float]]:
-    mem = ensure(st)
-    if not mem:
+           before_turn: Optional[int] = None,
+           layers: Tuple[str, ...] = _mdb.LAYERS,
+           ) -> List[Tuple[Dict[str, Any], float]]:
+    db = _db(st)
+    if db is None:
         return []
-    if before_turn is not None:
-        # 只检索本轮之前的事：本轮刚说的话不算「记得」
-        mem = [it for it in mem if int(it.get("turn", -1)) < int(before_turn)]
-        if not mem:
-            return []
-    q = _tokens(query)
-    cur_va = 0.0
-    if emo_state:
-        from .emotion import dimensions
-
-        cur_va = dimensions(emo_state)["valence"]
-
-    now = _now_clock(st)
-    scored: List[Tuple[Dict[str, Any], float]] = []
-    for it in mem:
-        body_score = _overlap(q, _tokens(it.get("text", "")))
-        tag_hit = len(set(it.get("tags") or []) & q)
-        score = body_score + 0.12 * tag_hit
-        if score <= 0:
-            continue
-        # 情绪一致性：同效价的记忆更容易被想起
-        score *= 1.0 + 0.15 * (1.0 - abs(float(it.get("va", 0.0)) - cur_va) / 2.0)
-        # 时间与强度
-        age_h = max(0.0, now - float(it.get("clock", now)))
-        score *= math.exp(-age_h / 900.0) * min(1.6, float(it.get("s", 1.0)))
-        if score >= 0.06:
-            scored.append((it, score))
-    scored.sort(key=lambda x: x[1], reverse=True)
-    for it, _ in scored[:3]:
-        it["hits"] = int(it.get("hits", 0)) + 1
-        it["s"] = min(2.0, float(it.get("s", 1.0)) * 1.05)
-        it["con"] = _clip(float(it.get("con", 0.0)) + 0.03)
-    return scored[:limit]
+    va, _, _ = _dims(emo_state)
+    rows = db.search(_umo(st), query, limit=limit, cur_va=va,
+                     before_turn=before_turn, layers=layers)
+    # 被想起来一次，就更容易再被想起来：这部分是「检索即复习」
+    for it, _score in rows[:3]:
+        db.touch(int(it["id"]), hit=True, s_gain=0.05, con_gain=0.03)
+    return rows
 
 
 def working_set(st, hours: float = 6.0) -> List[Dict[str, Any]]:
-    """工作记忆：最近且强度足够高的几条。容量受生化影响。
-
-    容量不单独存一份列表——存了就要同步维护，容易和主表对不上。
-    直接按「最近」取，容量由 NE / ACh / 皮质醇 / 海马功能决定。
-    """
-    mem = ensure(st)
-    if not mem:
+    """工作记忆：最近的一批，容量受生化影响。"""
+    db = _db(st)
+    if db is None:
         return []
     cap = WORKING_CAP
     for bio, w in (("norepinephrine", 1.0), ("acetylcholine", 0.8),
@@ -264,37 +252,51 @@ def working_set(st, hours: float = 6.0) -> List[Dict[str, Any]]:
         except KeyError:
             continue
         cap -= int(round(w * max(0.0, min(1.5, z))))
-    cap = max(2, min(7, cap))
-    return sorted(mem, key=lambda it: float(it.get("clock", 0.0)),
-                  reverse=True)[:cap]
+    cap = max(2, min(9, cap))
+    return db.recent(_umo(st), limit=cap, layer="instant")
+
+
+def latest(st, before_turn: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """最近一条记忆。压缩块用它，避免整份渲染被截断。"""
+    db = _db(st)
+    if db is None:
+        return None
+    rows = db.recent(_umo(st), limit=1, before_turn=before_turn)
+    return rows[0] if rows else None
 
 
 def stats(st) -> Dict[str, Any]:
-    mem = ensure(st)
-    if not mem:
-        return {"total": 0, "consolidated": 0, "avg_strength": 0.0,
+    db = _db(st)
+    if db is None:
+        return {"total": 0, "layers": {k: 0 for k in _mdb.LAYERS},
+                "consolidated": 0, "avg_strength": 0.0,
                 "working": 0, "oldest_turn": None, "newest_turn": None}
-    strong = sum(1 for it in mem if float(it.get("con", 0.0)) >= 0.5)
+    umo = _umo(st)
+    layers = db.counts(umo)
+    lo, hi = db.turn_span(umo)
+    total = sum(layers.values())
     return {
-        "total": len(mem),
-        "consolidated": strong,
-        "avg_strength": sum(float(it.get("s", 1.0)) for it in mem) / len(mem),
+        "total": total,
+        "layers": layers,
+        "consolidated": db.consolidated(umo),
+        "avg_strength": db.avg_strength(umo),
         "working": len(working_set(st)),
-        "oldest_turn": min(int(it.get("turn", 0)) for it in mem),
-        "newest_turn": max(int(it.get("turn", 0)) for it in mem),
+        "oldest_turn": lo,
+        "newest_turn": hi,
+        "fts": db.fts,
     }
 
 
-def clear(st) -> int:
-    mem = ensure(st)
-    n = len(mem)
-    mem.clear()
-    return n
+def clear(st, layer: Optional[str] = None) -> int:
+    db = _db(st)
+    if db is None:
+        return 0
+    return db.clear(_umo(st), layer)
 
 
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # 渲染
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 def _valence_word(va: float) -> str:
     if va <= -0.45:
         return "当时很难受"
@@ -307,48 +309,48 @@ def _valence_word(va: float) -> str:
     return "当时没什么起伏"
 
 
-def _age_word(st, it: Dict[str, Any]) -> str:
-    turn = int(st.meta.get("turn", 0))
-    gap = max(0, turn - int(it.get("turn", turn)))
-    if gap == 0:
+def _when(st, it: Dict[str, Any]) -> str:
+    """相对时间。按虚拟时钟差算，两种时钟模式都成立。"""
+    now = _now_clock(st)
+    age = max(0.0, now - float(it.get("vclock", now)))
+    if age < 1.0:
         return "刚刚"
-    if gap == 1:
-        return "上一轮"
-    if gap <= 3:
-        return f"前 {gap} 轮"
-    if gap <= 10:
-        return "几轮前"
-    if gap <= 40:
-        return "早些时候"
-    return "很久以前"
+    if age < 12.0:
+        return f"{int(age)} 小时内"
+    if age < 36.0:
+        return "昨天前后"
+    if age < 24.0 * 7:
+        return f"{int(age / 24)} 天前"
+    if age < 24.0 * 30:
+        return f"{int(age / 24 / 7)} 周前"
+    if age < 24.0 * 365:
+        return f"{int(age / 24 / 30)} 个月前"
+    return f"{int(age / 24 / 365)} 年前"
+
+
+def _layer_word(it: Dict[str, Any]) -> str:
+    return LAYER_ZH.get(str(it.get("layer", "short")), "短期")
 
 
 def render_block(st, query: str = "", limit: int = 4,
                  emo_state: Dict[str, float] | None = None) -> str:
     """注入段：这一句勾起了哪几件事。"""
-    mem = ensure(st)
-    if not mem:
+    db = _db(st)
+    if db is None:
         return ""
-
-    # 本轮刚说的话不算「记得」——那是刚刚听到的
+    umo = _umo(st)
     cur_turn = int(st.meta.get("turn", 0))
-    hist = [it for it in mem if int(it.get("turn", -1)) < cur_turn]
-    if not hist:
-        return ""
 
-    lines: List[str] = []
     picked: List[Tuple[Dict[str, Any], float]] = []
     seen: set = set()
     seen_text: set = set()
 
     def take(it: Dict[str, Any], sc: float) -> bool:
-        # 同一句话隔几轮又说一遍会重新编码成新条目，但注入段列两条一样的
-        # 只会白占篇幅，所以按文本再去一次重
         key = str(it.get("text", ""))[:40]
-        if id(it) in seen or key in seen_text:
+        if int(it.get("id", 0)) in seen or key in seen_text:
             return False
         picked.append((it, sc))
-        seen.add(id(it))
+        seen.add(int(it.get("id", 0)))
         seen_text.add(key)
         return True
 
@@ -357,22 +359,15 @@ def render_block(st, query: str = "", limit: int = 4,
                              before_turn=cur_turn):
             take(it, sc)
 
-    # 再补最近发生的一条：检索为 0 时，人记住的通常就是「刚说过的」。
-    # 只补一条——补多了会把「印象最深」的位置占满，一场争吵里最重的那句
-    # 就永远排不上。
-    recent = sorted(hist, key=lambda it: float(it.get("clock", 0.0)), reverse=True)
-    for it in recent[:1]:
+    # 补最近一条：检索为 0 时，人记住的通常就是「刚说过的」。
+    for it in db.recent(umo, limit=1, before_turn=cur_turn):
         if len(picked) >= limit:
             break
         take(it, 0.0)
 
-    # 还不足就按「强度 × 情绪强度」补，把印象最深的事带上来——
-    # 只按时间取的话，一场对话里最重的那句会被后几句废话挤掉。
+    # 还不够就按强度补：一场对话里最重的那句不该被后几句废话挤掉
     if len(picked) < limit:
-        rest = [it for it in hist if id(it) not in seen]
-        rest.sort(key=lambda it: float(it.get("s", 1.0))
-                  * (1.0 + abs(float(it.get("va", 0.0)))), reverse=True)
-        for it in rest:
+        for it in db.strongest(umo, limit=limit + 4, before_turn=cur_turn):
             if len(picked) >= limit:
                 break
             take(it, 0.0)
@@ -380,24 +375,35 @@ def render_block(st, query: str = "", limit: int = 4,
     if not picked:
         return ""
 
+    lines: List[str] = []
     lines.append("- 你还记得这些（不必主动复述，除非对方问起或它影响了你的反应）：")
     for it, score in picked[:limit]:
         txt = str(it.get("text", ""))[:70]
-        tag = "｜".join(it.get("tags") or [])[:24]
+        tag = str(it.get("tags", ""))[:24]
         mark = "（这一句直接勾起）" if score >= 0.25 else ""
-        lines.append(f"  · {_age_word(st, it)}｜{txt}"
-                     + (f"［{tag}］" if tag else "") + f"｜{_valence_word(float(it.get('va', 0.0)))}{mark}")
-    lines.append("- 记忆是有偏的：情绪强烈的事记得清，平淡的事会记错、记混，"
-                 "也可能把两件事并成一件。不要声称自己记得比这更细。")
+        lines.append(
+            f"  · {_layer_word(it)}｜{_when(st, it)}｜{txt}"
+            + (f"［{tag}］" if tag else "")
+            + f"｜{_valence_word(float(it.get('va', 0.0)))}{mark}"
+        )
+    lines.append(
+        "- 记忆是有偏的：长期的事稳固但细节会磨平，近期的事清楚但可能记混；"
+        "情绪强烈的事记得清，平淡的事会记错，也可能把两件事并成一件。"
+        "不要声称自己记得比这更细。"
+    )
     return "\n".join(lines)
 
 
 def render_report(st, query: str = "", limit: int = 15,
                   emo_state: Dict[str, float] | None = None) -> str:
     """用户可见：/心理 记忆 [关键词]"""
-    mem = ensure(st)
-    if not mem:
-        return "暂无记忆（记忆模块关闭，或还没开始对话）。"
+    db = _db(st)
+    if db is None:
+        return "记忆库未启用（memory_enabled=false）。"
+    umo = _umo(st)
+    s = stats(st)
+    if s["total"] == 0:
+        return "暂无记忆（还没开始对话，或已清空）。"
 
     if query:
         rows = search(st, query, limit=limit, emo_state=emo_state)
@@ -405,22 +411,67 @@ def render_report(st, query: str = "", limit: int = 15,
             return f"没有和「{query}」相关的记忆。"
         out = [f"── 记忆检索「{query}」· 命中 {len(rows)} 条 ──"]
         for it, score in rows:
-            out.append(f"第 {int(it.get('turn', 0)):>3d} 轮 · {score:.2f} · "
-                       f"{_valence_word(float(it.get('va', 0.0)))}"
-                       + (f"［{'｜'.join(it.get('tags') or [])}］" if it.get("tags") else ""))
+            out.append(
+                f"{_layer_word(it)} · 第 {int(it.get('turn', 0)):>3d} 轮 · "
+                f"{_when(st, it)} · 相关 {score:.2f} · "
+                f"{_valence_word(float(it.get('va', 0.0)))}"
+                + (f"［{it.get('tags')}］" if it.get("tags") else "")
+            )
             out.append(f"        {str(it.get('text', ''))[:100]}")
         return "\n".join(out)
 
-    s = stats(st)
-    out = [f"── 记忆 · 共 {s['total']} 条（巩固 {s['consolidated']} 条，"
-           f"平均强度 {s['avg_strength']:.2f}）──",
-           f"跨度 第 {s['oldest_turn']} 轮 → 第 {s['newest_turn']} 轮｜工作记忆 {s['working']} 条",
-           ""]
-    recent = sorted(mem, key=lambda it: float(it.get("clock", 0.0)), reverse=True)
-    for it in recent[:limit]:
-        out.append(f"第 {int(it.get('turn', 0)):>3d} 轮 · 强度 {float(it.get('s', 1.0)):.2f} · "
-                   f"巩固 {float(it.get('con', 0.0)):.2f} · {_valence_word(float(it.get('va', 0.0)))}")
-        out.append(f"        {str(it.get('text', ''))[:100]}")
-    if s["total"] > limit:
-        out.append(f"\n（仅显示最近 {limit} 条，用「/心理 记忆 关键词」检索）")
+    ly = s["layers"]
+    out = [
+        f"── 记忆 · 共 {s['total']} 条（平均强度 {s['avg_strength']:.2f}）──",
+        "｜".join(f"{LAYER_ZH[k]} {ly.get(k, 0)}" for k in _mdb.LAYERS)
+        + f"｜工作记忆 {s['working']} 条",
+        f"跨度 第 {s['oldest_turn']} 轮 → 第 {s['newest_turn']} 轮"
+        + ("｜FTS5 索引在线" if s.get("fts") else "｜FTS5 不可用，走倒排表"),
+        "",
+    ]
+    for layer in ("long", "medium", "short", "instant"):
+        rows = db.by_layer(umo, layer, limit=max(4, limit // 3))
+        if not rows:
+            continue
+        out.append(f"【{LAYER_ZH[layer]}】{ly.get(layer, 0)} 条")
+        for it in rows:
+            out.append(
+                f"  第 {int(it.get('turn', 0)):>3d} 轮 · 强度 {float(it.get('s', 1)):.2f}"
+                f" · 巩固 {float(it.get('con', 0)):.2f} · 命中 {int(it.get('hits', 0))}"
+                f" · {_when(st, it)}"
+            )
+            out.append(f"        {str(it.get('text', ''))[:100]}")
+        out.append("")
+    out.append("（用「/心理 记忆 关键词」检索，或「/心理 记忆 层 长期」只看某一层）")
+    return "\n".join(out)
+
+
+def dump(st, limit_per_layer: int = 500) -> List[Dict[str, Any]]:
+    """所有层的条目，平铺。测试与调试用。"""
+    db = _db(st)
+    if db is None:
+        return []
+    out: List[Dict[str, Any]] = []
+    for layer in _mdb.LAYERS:
+        out.extend(db.by_layer(_umo(st), layer, limit=limit_per_layer))
+    return out
+
+
+def render_layer(st, layer: str, limit: int = 20) -> str:
+    """用户可见：某一层的前若干条。"""
+    db = _db(st)
+    if db is None:
+        return "记忆库未启用。"
+    if layer not in _mdb.LAYERS:
+        return f"未知层级「{layer}」。可选：瞬时 / 短期 / 较长期 / 长期。"
+    rows = db.by_layer(_umo(st), layer, limit=limit)
+    if not rows:
+        return f"【{LAYER_ZH[layer]}】还是空的。"
+    out = [f"── {LAYER_ZH[layer]} · {len(rows)} 条 ──"]
+    for it in rows:
+        out.append(
+            f"第 {int(it.get('turn', 0)):>3d} 轮 · 强度 {float(it.get('s', 1)):.2f}"
+            f" · 命中 {int(it.get('hits', 0))} · {_when(st, it)}"
+        )
+        out.append(f"     {str(it.get('text', ''))[:110]}")
     return "\n".join(out)

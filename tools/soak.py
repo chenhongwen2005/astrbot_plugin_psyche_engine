@@ -56,6 +56,7 @@ ORGAN_LO, ORGAN_HI = 0.0, 1.35
 CFG: Dict[str, Any] = {
     "physio_enabled": True,
     "physio_hours_per_turn": 6,
+    "clock_mode": "virtual",
     "physio_sex": "m",
     "physio_age": 30,
     "physio_preset": "healthy",

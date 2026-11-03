@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from . import clock as clock_mod
 from . import emotion as emo_mod
 from . import memory as mem_mod
 from . import narrative, pharm, presets, scales as scales_mod
@@ -28,6 +30,30 @@ _pbody = _P.body
 _pconst = _P.const
 _pdrugs = _P.drugs
 _preport = _P.report
+
+
+_LAYER_ALIAS = {
+    "瞬时": "instant", "instant": "instant", "工作记忆": "instant", "工作": "instant",
+    "短期": "short", "short": "short",
+    "较长期": "medium", "中期": "medium", "medium": "medium",
+    "长期": "long", "long": "long", "永久": "long",
+}
+
+
+def _layer_alias(name: Optional[str]) -> str:
+    return _LAYER_ALIAS.get(str(name or "").strip().lower(), str(name or "").strip().lower())
+
+
+def _memory_db_path(store_path: str) -> str:
+    """记忆库与状态库同目录，但独立成文件。
+
+    合成一个文件也能跑，但状态每轮都要整份覆盖写，记忆每轮都要插一行，
+    两个高频写者挤一把锁会互相等；独立文件还让「删档」能只删状态、
+    保留记忆，或者反过来。
+    """
+    d = os.path.dirname(os.path.abspath(store_path or "psyche.db"))
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "memory.db")
 
 
 def _extract_json(raw: str) -> Optional[Dict[str, Any]]:
@@ -91,6 +117,10 @@ class Engine:
         self._cache: Dict[str, MindState] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
         self._last: Dict[str, tuple] = {}
+        # 记忆库：与状态库同目录的 memory.db。所有会话共用一条连接，
+        # 用 umo 列隔离——每开一个群就新建一条 sqlite 连接是浪费。
+        self.mem_path = _memory_db_path(getattr(store, "path", ""))
+        self._memdb = None
 
     # ------------------------------------------------------------------
     # 状态存取
@@ -122,8 +152,16 @@ class Engine:
         # 旧存档没有情感字段；记忆容量也随配置走，不信任存档里的旧值
         emo_mod.ensure(st)
         st.meta["memory_cap"] = int(self.cfg.get("memory_max", 240))
+        # 记忆：绑库。旧存档里的 JSON 列表在首次访问时自动迁进表。
+        if self.cfg.get("memory_enabled", True):
+            mem_mod.bind(st, self.mem_path, key, self.cfg, db=self._memstore())
         self._cache[key] = st
         return st
+
+    def _memstore(self):
+        if self._memdb is None:
+            self._memdb = mem_mod._mdb.MemDB(self.mem_path, self.cfg)
+        return self._memdb
 
     def save(self, key: str, st: MindState) -> None:
         self._cache[key] = st
@@ -139,6 +177,11 @@ class Engine:
             preset=str(self.cfg.get("physio_preset", "healthy")),
         )
         self.phys.refresh(st.body)
+        # 换预设等于换一个人：旧记忆不该跟着新角色走，否则「重置成健康人」
+        # 之后它还记得上一辈子的事。状态库与记忆库要一起清。
+        if self.cfg.get("memory_enabled", True):
+            mem_mod.bind(st, self.mem_path, key, self.cfg, db=self._memstore())
+            mem_mod.clear(st)
         self.save(key, st)
         self.store.log(key, 0, "reset", {"preset": st.meta["preset"]})
         return st
@@ -148,7 +191,11 @@ class Engine:
         return st, diagnose(st, self.cfg)
 
     def _turn_hours(self) -> float:
-        """一轮对话推进多少虚拟小时。身体关闭时退成 1 小时。"""
+        """一轮对话推进多少虚拟小时。身体关闭时退成 1 小时。
+
+        clock_mode=real 时这个值不用——真实流逝的小时由 clock.sync_clock
+        返回，可能是 0.01（一分钟内连发三条），也可能是 72（离线三天）。
+        """
         if not self.cfg.get("physio_enabled", True):
             return 1.0
         try:
@@ -175,8 +222,21 @@ class Engine:
             st.meta["appraisal"] = {k: v for k, v in (ap.get("dims") or {}).items()}
 
             # 身体先走：这一轮之间过了几个小时，吃喝睡动、环境、生病都在这里发生
+            hours = self._turn_hours()
             if self.cfg.get("physio_enabled", True):
-                phys_out = self.phys.step(st.body)
+                mode = self.cfg.get("clock_mode", "real")
+                if clock_mod.is_real(mode):
+                    # 真实时钟：推进量由墙钟决定，并顺手把年内日写进身体，
+                    # 否则季节相位会跟着「启动那天」跑偏。
+                    real_h = clock_mod.sync_clock(st.body, mode)
+                    st.body["day_of_year"] = clock_mod.day_of_year()
+                    st.body["clock_mode"] = "real"
+                    hours = max(0.02, real_h)
+                    phys_out = self.phys.step(st.body, max(0.0, real_h))
+                else:
+                    st.body["clock_mode"] = "virtual"
+                    st.body.pop("clock_epoch", None)
+                    phys_out = self.phys.step(st.body)
                 if self.cfg.get("physio_couple", True):
                     self.phys.couple(st.body, st)
                 st.meta["physio_events"] = (phys_out.get("events") or [])[-8:]
@@ -184,11 +244,14 @@ class Engine:
             self.dyn.step(st, ap)
 
             # 情感：生化给底色（慢），本轮刺激给尖峰（快）
-            hours = self._turn_hours()
             emo_state = None
             if self.cfg.get("emotion_enabled", True):
                 emo_mod.step(st, ap, hours, self.cfg, text)
                 emo_state = st.emo
+                # 心里的状态落回身体：心率、血压、体温、痛觉都会跟着变。
+                # 这一步必须在 st.emo 更新之后、注入块渲染之前。
+                if self.cfg.get("physio_enabled", True):
+                    self.phys.mind_set(st.body, st.emo)
             # 记忆：带着这一刻的情绪颜色编码，下一轮才可能被勾起来
             if self.cfg.get("memory_enabled", True):
                 st.meta["memory_cap"] = int(self.cfg.get("memory_max", 240))
@@ -665,12 +728,21 @@ class Engine:
         self.save(key, st)
         return out
 
-    def memory_clear(self, key: str) -> str:
+    def memory_layer(self, key: str, layer: str) -> str:
         st = self.load(key)
-        n = mem_mod.clear(st)
+        if not self.cfg.get("memory_enabled", True):
+            return "记忆模块未启用（memory_enabled=false）。"
+        return mem_mod.render_layer(st, _layer_alias(layer))
+
+    def memory_clear(self, key: str, layer: Optional[str] = None) -> str:
+        st = self.load(key)
+        lay = _layer_alias(layer) if layer else None
+        n = mem_mod.clear(st, lay)
         self.save(key, st)
-        self.store.log(key, int(st.meta.get("turn", 0)), "memory_clear", {"n": n})
-        return f"已清空 {n} 条记忆。状态、诊断与身体不受影响。"
+        self.store.log(key, int(st.meta.get("turn", 0)), "memory_clear",
+                       {"n": n, "layer": lay})
+        where = f"【{mem_mod.LAYER_ZH.get(lay, lay)}】层" if lay else ""
+        return f"已清空{where} {n} 条记忆。状态、诊断与身体不受影响。"
 
     def set_emotion(self, key: str, dim: str, value: str) -> str:
         """手工设定某一情感分量，用于拉回明显的跑偏。"""

@@ -262,7 +262,18 @@ class PsycheEnginePlugin(Star):
                     yield event.plain_result(self.engine.memory_report(key))
                     return
                 if args[0] in ("清空", "清除", "clear"):
-                    yield event.plain_result(self.engine.memory_clear(key))
+                    yield event.plain_result(
+                        self.engine.memory_clear(key, args[1] if len(args) > 1 else None)
+                    )
+                    return
+                # /心理 记忆 层 长期　或　/心理 记忆 长期
+                layers = ("瞬时", "短期", "较长期", "中期", "长期",
+                          "instant", "short", "medium", "long")
+                if args[0] in ("层", "layer") and len(args) > 1:
+                    yield event.plain_result(self.engine.memory_layer(key, args[1]))
+                    return
+                if len(args) == 1 and args[0].lower() in layers:
+                    yield event.plain_result(self.engine.memory_layer(key, args[0]))
                     return
                 yield event.plain_result(self.engine.memory_search(key, " ".join(args)))
                 return

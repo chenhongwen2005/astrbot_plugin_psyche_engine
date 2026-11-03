@@ -32,6 +32,7 @@ PASS = 0
 
 BASE = {
     "physio_enabled": True, "physio_hours_per_turn": 6, "physio_sex": "f",
+    "clock_mode": "virtual",
     "physio_age": 34, "physio_preset": "healthy",
 }
 
@@ -164,11 +165,14 @@ def test_memory_roundtrip_text() -> None:
         fail("注入块里没有记忆段")
     if "我妈妈上周查出来肺上有阴影" not in blk:
         fail("上一轮说的话没有出现在记忆段里")
-    # 本轮说的话（「嗯」）不该以「刚刚还记得」的形式出现
-    newest = max(st.mem, key=lambda it: it["clock"])
-    if int(newest["turn"]) != turn:
-        fail("最新记忆不是本轮编码的")
-    ok(f"记忆段带上了上一轮的内容（{len(st.mem)} 条），且不含本轮原句")
+    # 本轮说的话不该以「刚刚还记得」的形式出现
+    newest = MM.latest(st)
+    if newest is None:
+        fail("记忆库是空的")
+    if int(newest["turn"]) >= turn and "知道了" in str(newest["text"]):
+        fail("本轮刚说的话被当成了回忆")
+    s = MM.stats(st)
+    ok(f"记忆段带上了上一轮的内容（共 {s['total']} 条，{s['layers']}）")
 
 
 def test_memory_search_hits() -> None:
@@ -187,68 +191,83 @@ def test_memory_search_hits() -> None:
 
 
 def test_memory_cap() -> None:
-    """条数上限必须生效，且不能把最新的挤掉。"""
+    """短期层容量必须生效，且不能把最新的挤掉。"""
 
     async def run():
         eng = new_engine(memory_max=20)
         await talk(eng, [f"第{i}件无关紧要的小事，说过就算了" for i in range(40)])
         st = eng.load("k")
-        return len(st.mem), st.mem
+        return MM.stats(st), MM.dump(st)
 
-    n, mem = asyncio.run(run())
-    if n > 20:
-        fail(f"记忆条数超限：{n} > 20")
-    if not any("第39件" in it["text"] for it in mem):
+    s, items = asyncio.run(run())
+    if s["layers"]["short"] > 20:
+        fail(f"短期层超限：{s['layers']['short']} > 20")
+    if not any("第39件" in str(it["text"]) for it in items):
         fail("最新一条被淘汰了")
-    ok(f"记忆条数上限生效（{n} 条 ≤ 20，最新一条保留）")
+    ok(f"短期层容量生效（瞬时 {s['layers']['instant']}｜短期 {s['layers']['short']}"
+       f"｜较长期 {s['layers']['medium']}），最新一条保留")
 
 
 def test_memory_forget() -> None:
-    """强度低于阈值应被遗忘；巩固过的不该轻易掉。"""
-    st = MindState()
-    st.mem = [
-        {"id": "a", "text": "已经淡到记不清的事", "turn": 1, "clock": 0.0,
-         "va": 0.0, "ar": 0.4, "tags": [], "s": 0.05, "hits": 0, "con": 0.0},
-        {"id": "c", "text": "普通的一件小事", "turn": 1, "clock": 0.0,
-         "va": 0.2, "ar": 0.4, "tags": [], "s": 0.09, "hits": 0, "con": 0.0},
-        {"id": "b", "text": "印象很深的一件事", "turn": 1, "clock": 0.0,
-         "va": -0.8, "ar": 0.8, "tags": [], "s": 1.6, "hits": 3, "con": 0.9},
-    ]
-    MM.step(st, "", None, 6.0)
-    if any(it["id"] == "a" for it in MM.ensure(st)):
+    """强度低于阈值应被遗忘；巩固过的、进了长期的不该掉。"""
+    import tempfile as _tf
+
+    from psyche import memdb as MDB
+
+    db = MDB.MemDB(os.path.join(_tf.mkdtemp(), "forget.db"))
+    umo = "t"
+    weak = db.encode(umo, "已经淡到记不清的事", turn=1, vclock=0.0, s=0.05, layer="short")
+    plain = db.encode(umo, "普通的一件小事", turn=1, vclock=0.0, s=0.09, layer="short")
+    strong = db.encode(umo, "印象很深的一件事", turn=1, vclock=0.0, s=1.6, layer="short")
+    db.touch(int(strong["id"]), hit=True, con_gain=0.9)
+    # 巩固到 0.45 以上会被晋升到较长期——这一步必须在衰减之前跑，
+    # 否则测的是「短期层里一条强记忆能不能扛住一个月」，那不是设计目标。
+    db.promote(umo, now_vclock=0.0)
+    deep = db.encode(umo, "这辈子忘不掉的事", turn=1, vclock=0.0, s=1.2, layer="long")
+    assert weak and plain and strong and deep
+
+    db.decay(umo, 6.0)
+    ids = {int(r["id"]) for r in db._rows("SELECT id FROM memory WHERE umo=?", (umo,))}
+    if int(weak["id"]) in ids:
         fail("低于阈值的记忆一步都没被清掉")
-    # 普通记忆的半衰期是 30 天，要过一段时间才会掉到阈值以下
     for _ in range(10):
-        MM.step(st, "", None, 72.0)
-    ids = [it["id"] for it in MM.ensure(st)]
-    if "c" in ids:
-        fail("普通记忆在 30 天后仍未被遗忘")
-    if "b" not in ids:
+        db.decay(umo, 72.0)
+    ids = {int(r["id"]) for r in db._rows("SELECT id FROM memory WHERE umo=?", (umo,))}
+    if int(plain["id"]) in ids:
+        fail("普通记忆在数十天后仍未被遗忘")
+    if int(strong["id"]) not in ids:
         fail("巩固过的强记忆被误删")
-    ok("弱记忆被遗忘（阈值即刻清、普通记忆 30 天内）、巩固过的保留")
+    if int(deep["id"]) not in ids:
+        fail("长期层被衰减掉了（长期层不应衰减）")
+    ok("弱记忆即刻清、普通记忆会淡、巩固过的留下、长期层不衰减")
 
 
 def test_persistence() -> None:
-    """存档往返：情绪分量与记忆条目都不该变。"""
+    """存档往返：情绪分量进 JSON，记忆进独立库里且重启后还在。"""
 
     async def run():
         eng = new_engine()
         await talk(eng, ["今天被骂了，很难受", "晚上睡不着", "算了不说了"])
-        raw = eng.store.load("k")
-        st2 = MindState.from_json(raw)
-        return eng.load("k"), st2, raw
+        st = eng.load("k")
+        n1 = MM.stats(st)["total"]
+        # 同一个数据目录重开一个引擎实例：等价于插件重启
+        eng2 = Engine(dict(BASE), Store(eng.store.path))
+        st2 = eng2.load("k")
+        return st, st2, n1, MM.stats(st2)["total"], eng.store.load("k")
 
-    st, st2, raw = asyncio.run(run())
+    st, st2, n1, n2, raw = asyncio.run(run())
     a = {k: round(float(v), 3) for k, v in st.emo.items()}
     b = {k: round(float(v), 3) for k, v in st2.emo.items()}
     if a != b:
         fail(f"情绪往返后改变：{ {k: (a[k], b[k]) for k in a if a.get(k) != b.get(k)} }")
-    if [it["text"] for it in st.mem] != [it["text"] for it in st2.mem]:
-        fail("记忆往返后条目改变")
-    if len(st.mem) == 0:
+    if n1 <= 0:
         fail("没有记忆可测")
+    if n1 != n2:
+        fail(f"记忆库重启后条数变了：{n1} → {n2}")
+    if st.mem:
+        fail("记忆已迁到库里，JSON 里不该还留着副本")
     json.dumps(json.loads(raw), ensure_ascii=False)
-    ok(f"存档往返一致（情绪 {len(a)} 项，记忆 {len(st2.mem)} 条）")
+    ok(f"存档往返一致（情绪 {len(a)} 项，记忆 {n2} 条在 memory.db 里）")
 
 
 def test_switches() -> None:
@@ -265,8 +284,8 @@ def test_switches() -> None:
     st, blk = asyncio.run(run())
     if any(float(v) > 0.001 for k, v in st.emo.items() if k != "mood"):
         fail(f"关掉后情绪仍在变：{ {k: v for k, v in st.emo.items() if v > 0.001} }")
-    if st.mem:
-        fail(f"关掉后仍在记：{len(st.mem)} 条")
+    if MM.stats(st)["total"]:
+        fail(f"关掉后仍在记：{MM.stats(st)['total']} 条")
     if "情绪（此刻的底色）" in blk or "记忆（被这一句勾起来的事）" in blk:
         fail("关掉后注入块里仍有情绪或记忆段")
     ok("两个开关关闭后不推进、不注入")

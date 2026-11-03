@@ -18,6 +18,14 @@ from typing import Any, Dict, List, Tuple
 
 from .const import LABS, VITALS, ref_range
 from . import body as B
+from . import energy as E
+from . import substance as SUB
+from . import lifecycle as LC
+from . import intero as IO
+from . import sleep as SL
+from . import traits as TR
+from . import rhythm as RY
+from . import mind as MD
 from .diseases import DISEASES
 from .drugs import DRUGS
 
@@ -282,7 +290,11 @@ def _apply_conditions(body: Dict[str, Any], labs: Dict[str, float],
         pain += float(spec.get("pain", 0.0)) * k
     derived["inflammation"] = min(1.0, inflam)
     derived["fever_drive"] = min(1.0, fever)
-    derived["pain_drive"] = min(1.0, pain)
+    # 疼痛是「伤害 × 敏感度」而不是「伤害」。同样的伤口，怕疼的人 VAS
+    # 报 7 分，耐疼的人报 4 分——体检单上的 PAIN 与说话的语气都该跟着变，
+    # 否则所有角色对同一个病喊得一样响。
+    derived["pain_drive"] = min(
+        1.0, pain * TR.pain_sens(body) * MD.pain_gain(body))
 
     # 炎症对炎症指标与白细胞的回写
     labs["CRP"] = labs.get("CRP", 1.0) + 70.0 * derived["inflammation"]
@@ -388,7 +400,10 @@ def _consistency(body: Dict[str, Any], labs: Dict[str, float],
     # 低驱动基本不烧（<37.2），过了阈值才陡升，重症能到 40℃ 以上。
     fd = float(derived.get("fever_drive", 0.0)) if derived else 0.0
     ramp = max(0.0, fd - 0.12) / 0.88
-    base_t = 36.5 + 3.5 * (ramp ** 1.25)
+    # 叠加在「这个人的体温底色 + 此刻的生物钟相位」之上，不要整个改写。
+    # 直接写 36.5 + 发热量的话，体质偏移与昼夜曲线会被一并抹掉，
+    # 凌晨四点与傍晚六点的体温就一样了。
+    base_t = float(vitals.get("TEMP", 36.55)) + 3.5 * (ramp ** 1.25)
     base_t = min(40.6, base_t)
     vitals["TEMP"] = base_t
     # 体温每升 1℃ 心率约增 10 次
@@ -413,16 +428,36 @@ def _vitals(body: Dict[str, Any], labs: Dict[str, float],
     sex = body.get("sex", "m")
     age = float(body.get("age", 30.0))
     fitness = B.life(body, "fitness")
-    hr = 72.0 - 12.0 * (fitness - 0.5)
-    hr += 0.16 * max(0.0, 37.0 - 0.0) * 0.0  # 占位，保持初值可读
+    # 72 是人群均值，不是这个人的值：体质给的偏移才是「他」。
+    hr = 72.0 + TR.get(body, "hr_off")
+    hr -= 12.0 * (fitness - 0.5)
     hr += 0.9 * max(0.0, (B.bmi(body) - 25.0))
     hr += 0.35 * max(0.0, age - 50.0) * 0.6
+    # 昼夜：睡着时低、白天随生物钟摆。不放进体质——那是此刻，不是底色。
+    hr += RY.hr_off(body)
+    # 情绪：生气时太阳穴跳、害怕时心跳快。这是此刻，连体质都不是。
+    mf = MD.effects(body)
+    hr += mf["hr"]
+    # 酒精扩张血管、心率代偿性上升；咖啡因直接推心率。两者叠加时不能
+    # 简单相加，取较大的那个再加一半——真实的心率不是加法表。
+    try:
+        from . import substance as _SUB
+        e_hr = 7.0 * min(1.5, _SUB.etoh(body))
+        c_hr = 11.0 * min(1.0, _SUB.caff(body) / 250.0)
+        hr += max(e_hr, c_hr) + 0.5 * min(e_hr, c_hr)
+    except Exception:
+        pass
 
     sbp = 108.0 + 0.38 * max(0.0, age - 20.0)
     sbp += 0.9 * max(0.0, B.bmi(body) - 24.0)
     sbp += 3.0 * max(0.0, B.life(body, "salt") - 1.0)
     sbp -= 6.0 * (fitness - 0.5)
     dbp = 68.0 + 0.16 * max(0.0, age - 20.0) + 0.5 * max(0.0, B.bmi(body) - 24.0)
+    # 夜间下降与清晨晨峰：睡着时降、醒来后冲。这两段是心脑血管事件
+    # 为什么集中在清晨的全部理由，读数是平的就没法解释它。
+    b_sbp, b_dbp = RY.bp_off(body)
+    sbp += b_sbp + mf["sbp"]
+    dbp += b_dbp + mf["dbp"]
 
     h_m = float(body.get("height", 172.0)) / 100.0
     fat = max(0.3, min(1.8, B.organ(body, "fat")))
@@ -431,10 +466,11 @@ def _vitals(body: Dict[str, Any], labs: Dict[str, float],
     bmi_v = weight / (float(body.get("height", 172.0)) / 100.0) ** 2
 
     v = {
-        "HR": hr, "SBP": sbp, "DBP": dbp, "RR": 15.0,
+        "HR": hr, "SBP": sbp, "DBP": dbp, "RR": 15.0 + mf["rr"],
         # 体温与疼痛的疾病分量在 compute() 里统一叠加：那时 fever_drive /
         # pain_drive 才算出来，在这里读只能读到 0，等于永远不发烧、永远不疼。
-        "TEMP": 36.55,
+        # 这里只落「这个人的体温底色 + 此刻的生物钟相位」。
+        "TEMP": 36.55 + TR.get(body, "temp_off") + RY.temp_off(body) + mf["temp"],
         "SpO2": 97.5, "WEIGHT": weight, "BMI": bmi_v,
         "WAIST": (bmi_v - 20.0) * 2.1 + 66.0,
         "PAIN": 0.0,
@@ -452,7 +488,8 @@ def compute(body: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, float], D
     # 发热、疼痛、失血/低氧对心率呼吸的连带影响，只能在疾病偏移之后叠加：
     # 放在 _vitals() 里读到的 fever_drive 还是 0，读到的 HGB 还是病前的值。
     sex = body.get("sex", "m")
-    vitals["TEMP"] += 0.85 * float(derived.get("fever_drive", 0.0))
+    # 发热量统一在 _consistency 里按阈值曲线叠加（那里才看得到体温底色），
+    # 这里再加一次就是重复计费，而且会被后者整个覆盖掉。
     vitals["PAIN"] = min(10.0, float(vitals.get("PAIN", 0.0))
                          + 8.0 * float(derived.get("pain_drive", 0.0)))
     vitals["HR"] += 12.0 * max(0.0, 1.0 - labs["HGB"] / (140.0 if sex == "m" else 125.0))
@@ -473,10 +510,29 @@ def compute(body: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, float], D
         if k in HARD_LIMITS:
             vitals[k] = _clip(k, vitals[k])
 
+    # 生殖周期、妊娠、产后的效应要落在「异常判定」之前：
+    # 黄体期体温高 0.3℃ 不是发烧，孕中期的血红蛋白稀释不是贫血，
+    # 但如果先判异常再修，报告里就会凭空多出「低体温」「贫血」两条。
+    LC.modulate(body, labs, vitals, derived)
+    for k in list(labs):
+        if k in HARD_LIMITS:
+            labs[k] = _clip(k, labs[k])
+    for k in list(vitals):
+        if k in HARD_LIMITS:
+            vitals[k] = _clip(k, vitals[k])
+
     derived["abnormal"] = abnormal_items(body, labs, vitals)
     derived["organ_failure"] = organ_failure(body)
-    derived["symptoms"] = symptoms(body)
+    derived["intero"] = IO.compute(body, labs, vitals, derived)
+    sx = list(symptoms(body))
+    sx.extend(LC.symptoms(body))
+    sx.extend(E.symptoms(body))
+    sx.extend(MD.symptoms(body))
+    sx.extend(IO.symptoms(body))
+    sx.extend(SL.symptoms(body))
+    derived["symptoms"] = sorted(sx, key=lambda kv: -kv[1])[:12]
     derived["dysfunction"] = dysfunction_score(body)
+    body["energy"] = E.compute(body, labs, vitals, derived)
     return labs, vitals, derived
 
 

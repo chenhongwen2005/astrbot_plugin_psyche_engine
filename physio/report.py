@@ -13,6 +13,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from . import body as B
+from . import energy as _E
+from . import lifecycle as _LC
+from . import intero as _IO
+from . import traits as _TR
+from . import injury as _INJ
+from . import substance as _SUB
+from . import sleep as _SL
 from .const import LABS, PANELS, VITALS, ref_range
 from .diseases import DISEASES
 
@@ -375,6 +382,16 @@ def render_life(body: Dict[str, Any]) -> str:
         f"{float(env.get('pm25', 25)):.0f}µg/m³，病原暴露 "
         f"{float(env.get('pathogen', 0.15)):.0%}",
     ]
+    # 昨夜的具体结构。只有排过夜才有，新建角色不编一个出来。
+    sl = _SL.summary(body)
+    if sl:
+        lines.insert(1, f"昨夜：{sl}")
+    # 体质：同岁同性同体型的两个人，静息心率、睡眠需求、疼痛敏感度都
+    # 不一样。不写出来，用户看到「他心率 79」时无从判断这算不算他偏高。
+    lines.append(f"体质：{_TR.summary(body)}")
+    io = _IO.line(body)
+    if io:
+        lines.append(f"此刻：{io}")
     return "\n".join(lines)
 
 
@@ -417,6 +434,52 @@ def render_block_section(body: Dict[str, Any], max_chars: int = 420) -> str:
         bits.append("疼得厉害" if pain >= 7 else "一直在疼")
     if bits:
         parts.append("体征：" + "、".join(bits))
+
+    # 醉了、宿醉、咖啡劲没过：这些会直接改变一个人怎么说话
+    subs_line = _SUB.line(body)
+    if subs_line:
+        parts.append(subs_line)
+
+    # 外伤优先于饿和渴：手上有一道没好的口子，比「有点饿」更影响
+    # 一个人当下怎么说话、怎么做事。
+    inj_line = _INJ.line(body)
+    if inj_line:
+        parts.append(inj_line)
+
+    # 饿、渴、尿意、便意：一天里最频繁的身体信号。
+    # 只写「有」，不写「该做」。写「该去吃饭了」等于替模型安排行为，
+    # 而它可能正在说一件重要的事，这时候饿着说完完全合理。
+    io_line = _IO.line(body)
+    if io_line:
+        parts.append(io_line)
+
+    # 昨夜只有在确实糟糕时才提。一个正常睡了七小时的早上，
+    # 「睡了 7 小时 12 分」是废话——和一整天的对话无关。
+    if float(body.get("clock", 0.0) or 0.0) % 24.0 < 12.0:
+        last = ((body.get("sleep") or {}).get("last") or {})
+        if last and (float(last.get("n3", 0.2)) < 0.10
+                     or int(last.get("awakenings", 0)) >= 4
+                     or float(last.get("hours", 8.0)) < 5.5):
+            parts.append("昨晚：" + _SL.describe(last))
+
+    # 周期相位：只有女性角色、且不在妊娠/绝经前才有内容
+    lc = _LC.summary(body)
+    if lc:
+        parts.append(lc)
+
+    # 睡着的时候不报精力。人是躺着的，不是「撑着一口气」——那个说法在
+    # 22:30 刚躺下时尤其离谱：今晚才睡了半小时，一整天却是醒着的。
+    st = body.get("sleep") or {}
+    if st.get("sleeping"):
+        parts.append("此刻已经睡下（被叫起来会迷糊，反应比平时慢）")
+    else:
+        # 精力只在真的低、或确实有负荷时才占篇幅。
+        # 健康人上午写一句「精力还够用」是废话，还会挤掉后面更重要的信息。
+        en = body.get("energy") or {}
+        if en and (float(en.get("level", 1.0)) < 0.58 or en.get("notes")):
+            line = _E.summary(body)
+            if line:
+                parts.append(line)
 
     if float(d.get("dysfunction", 0)) > 0.45:
         parts.append("整个人提不起劲，做什么都费劲")

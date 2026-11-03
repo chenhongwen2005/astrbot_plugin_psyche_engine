@@ -212,14 +212,22 @@ def test_drug_accumulation() -> None:
 def test_onset_rate() -> None:
     """发病频率要能当"生活质感"，不能让人长期卧病。"""
     phys = Physiology({"physio_disease_onset": True, "physio_onset_scale": 0.30})
+
+    def _ill(body):
+        # 只数"病"。外伤也躺在 conditions 里，但手上贴个创可贴不等于
+        # 卧病在床——把它算进疾病负担会让这条断言失去意义。
+        return len([c for c in body["conditions"]
+                    if float(c["sev"]) > 0.03
+                    and not (DISEASES.get(c["code"]) or {}).get("kind") == "injury"])
+
     counts_30, counts_365 = [], []
     for i in range(6):
         b = B.new_body(sex="m" if i % 2 == 0 else "f", age=30 + i * 4,
                        preset="healthy", seed=1000 + i)
         phys.step(b, 24.0 * 30)
-        counts_30.append(len([c for c in b["conditions"] if float(c["sev"]) > 0.03]))
+        counts_30.append(_ill(b))
         phys.step(b, 24.0 * 335)
-        counts_365.append(len([c for c in b["conditions"] if float(c["sev"]) > 0.03]))
+        counts_365.append(_ill(b))
     if max(counts_30) > 3:
         fail(f"30 天内活动性疾病过多：{counts_30}")
     if max(counts_365) > 10:
